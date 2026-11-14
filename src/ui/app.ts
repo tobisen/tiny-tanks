@@ -1,5 +1,23 @@
-import { DEFAULT_SETTINGS, THEMES, type Settings } from "../game/config";
+import {
+  DEFAULT_SETTINGS,
+  INPUT_SPEED,
+  quickPlaySettings,
+  THEMES,
+  type Settings,
+} from "../game/config";
 import type { BattleScene } from "../game/scene";
+import {
+  ACHIEVEMENTS,
+  accuracy,
+  emptyRecord,
+  formatDuration,
+  readRecord,
+  RECORD_KEY,
+  resultFor,
+  updateRecord,
+  type AchievementId,
+} from "../game/records";
+import type { Match } from "../game/match";
 import { WEAPONS, type WeaponId } from "../game/weapons";
 
 const icon = (name: string) => {
@@ -39,13 +57,33 @@ export class AppUI {
   private ready = false;
   private settingsReturn: "menu" | "pause" = "menu";
   private beforeHelpPaused = false;
+  private record = emptyRecord();
+  private recordedMatch?: Match;
+  private pendingStart?: { mode: Settings["mode"]; seed?: number };
+  private playerSignature = "";
+  private achievementTimer?: ReturnType<typeof setTimeout>;
   constructor() {
+    this.settings.reducedMotion = matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
     try {
+      this.record = readRecord(localStorage.getItem(RECORD_KEY));
       const saved = JSON.parse(
         localStorage.getItem("tiny-tanks-settings") ?? "null",
       ) as Partial<Settings> | null;
       if (saved) {
         this.settings = {
+          ...this.settings,
+          crates: saved.crates !== false,
+          preview: saved.preview !== false,
+          reducedMotion:
+            typeof saved.reducedMotion === "boolean"
+              ? saved.reducedMotion
+              : this.settings.reducedMotion,
+          inputSpeed:
+            saved.inputSpeed && Object.hasOwn(INPUT_SPEED, saved.inputSpeed)
+              ? saved.inputSpeed
+              : "normal",
           mode: saved.mode === "local" ? "local" : "ai",
           players: [2, 3, 4].includes(saved.players ?? 0) ? saved.players! : 3,
           difficulty: ["easy", "normal", "hard"].includes(
@@ -67,24 +105,24 @@ export class AppUI {
     }
     document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <div class="shell">
-        <header class="topbar"><a class="brand" href="#" aria-label="Tiny Tanks home">${tankLogo}<span>TINY TANKS</span></a><div class="topbar-center"><span class="live-dot"></span> SMALL TANKS. BIG TROUBLE.</div><nav aria-label="Game actions"><button class="icon-button" id="sound" aria-label="Mute sound">${icon("sound")}</button><button class="icon-button" id="help" aria-label="How to play">${icon("help")}</button><button class="icon-button" id="pause" aria-label="Pause game" disabled>${icon("pause")}</button></nav></header>
+        <header class="topbar"><a class="brand" href="#" aria-label="Tiny Tanks home">${tankLogo}<span>TINY TANKS</span></a><div class="topbar-center"><span class="live-dot"></span> ARCADE EDITION <span class="edition-tag">02</span></div><nav aria-label="Game actions"><button class="icon-button" id="sound" aria-label="Mute sound">${icon("sound")}</button><button class="icon-button" id="records" aria-label="Arcade record">${icon("flag")}</button><button class="icon-button" id="help" aria-label="How to play">${icon("help")}</button><button class="icon-button" id="pause" aria-label="Pause game" disabled>${icon("pause")}</button></nav></header>
         <main>
           <div class="match-heading"><div><span class="eyebrow" id="match-mode">THE PROVING GROUNDS</span><h1 id="match-title">A good day to make a crater.</h1></div><div class="match-meta"><span class="theme-dot"></span><span id="theme-label">GREEN HILLS</span><span class="meta-divider">/</span><span id="turn-label">READY WHEN YOU ARE</span></div></div>
           <section class="battlefield" aria-label="Artillery battlefield">
             <div class="battle-top"><div id="players" class="players" aria-label="Tank health"></div><div class="wind-card">${icon("wind")}<div><span class="micro-label">WIND</span><strong id="wind-value">CALM</strong></div></div></div>
             <div class="stage"><div id="game" aria-label="Tiny Tanks game canvas"></div>
-              <div id="menu" class="menu"><div class="menu-content"><p class="eyebrow"><span class="tiny-star">✳</span> A LITTLE FRIENDLY DESTRUCTION</p><h2>TINY<br>TANKS<span>.</span></h2><p class="menu-description">Take your shot. Move mountains.<br>Try to keep your friends.</p><div class="menu-actions"><button class="button primary" id="play-ai">Play vs AI ${icon("arrow")}</button><button class="button secondary" id="play-local">Local multiplayer <span>2–4 P</span></button></div><div class="menu-links"><button id="settings">${icon("settings")} Match settings</button><span>·</span><button id="menu-help">How to play ${icon("arrow")}</button></div></div><div class="field-note"><span>EST. 2026</span><strong>MAKE A LITTLE<br>BIG TROUBLE.</strong><span>ORIGINAL ARCADE ARTILLERY</span></div></div>
+              <div id="menu" class="menu"><div class="menu-content"><p class="eyebrow"><span class="tiny-star">✳</span> ARCADE EDITION / MORE BANG. MORE TROUBLE.</p><h2>TINY<br>TANKS<span>.</span></h2><p class="menu-description">Take your shot. Move mountains.<br>Try to keep your friends.</p><div class="menu-actions"><button class="button primary quick-play" id="quick-play"><span>Quick Play<small>YOU + 2 CPU · RANDOM MAP</small></span>${icon("arrow")}</button><button class="button secondary" id="play-ai">Play vs AI</button><button class="button secondary" id="play-local">Local multiplayer <span>2–4 P</span></button></div><div class="menu-links"><button id="settings">${icon("settings")} Match settings</button><span>·</span><button id="menu-help">How to play ${icon("arrow")}</button></div></div><div class="field-note"><span>EST. 2026</span><strong>MAKE A LITTLE<br>BIG TROUBLE.</strong><span>LIGHT THE FUSE. START A CHAIN.</span></div></div>
               <div class="field-coordinates" aria-hidden="true"><span>TT / FIELD OPERATIONS</span><span>01 — NO SMALL EXPLOSIONS</span></div>
             </div>
-            <div id="controls" class="controls"><div class="weapon-section"><div class="control-heading"><span class="micro-label">01 / LOADOUT</span><span id="ammo-label">UNLIMITED AMMO</span></div><div class="weapons" role="group" aria-label="Weapon selection">${WEAPONS.map((w, i) => `<button class="weapon${i === 0 ? " selected" : ""}" data-weapon="${w.id}" title="${w.name} — ${w.description}" aria-label="${w.name}" aria-pressed="${i === 0}"><span class="weapon-key">${i + 1}</span>${icon(w.id === "standard" ? "shell" : w.id)}<span class="weapon-name">${w.short}</span><span class="weapon-ammo">${Number.isFinite(w.ammo) ? w.ammo : "∞"}</span></button>`).join("")}</div></div>
-            <div class="aim-control"><div class="control-heading"><label class="micro-label" for="angle">02 / ANGLE</label><output id="angle-output" for="angle">55<span>°</span></output></div><div class="range-line"><button class="adjust" data-adjust="angle:-1" aria-label="Decrease angle">−</button><input id="angle" type="range" min="0" max="180" value="55" aria-label="Firing angle"><button class="adjust" data-adjust="angle:1" aria-label="Increase angle">+</button></div><div class="range-labels"><span>RIGHT 0°</span><span>LEFT 180°</span></div></div>
-            <div class="aim-control"><div class="control-heading"><label class="micro-label" for="power">03 / POWER</label><output id="power-output" for="power">64<span>%</span></output></div><div class="range-line"><button class="adjust" data-adjust="power:-1" aria-label="Decrease power">−</button><input id="power" type="range" min="0" max="100" value="64" aria-label="Firing power"><button class="adjust" data-adjust="power:1" aria-label="Increase power">+</button></div><div class="range-labels"><span>A LITTLE</span><span>A LOT</span></div></div>
+            <div id="controls" class="controls"><div class="weapon-section"><div class="control-heading"><span class="micro-label">01 / LOADOUT</span><span id="ammo-label">UNLIMITED AMMO</span></div><div class="weapons" role="group" aria-label="Weapon selection">${WEAPONS.map((w, i) => `<button class="weapon${i === 0 ? " selected" : ""}" data-weapon="${w.id}" title="${w.name} — ${w.description}" aria-label="${w.name}" aria-pressed="${i === 0}"><span class="weapon-key">${i + 1}</span>${icon(w.id === "standard" ? "shell" : w.id)}<span class="weapon-name">${w.short}</span><span class="weapon-ammo">${Number.isFinite(w.ammo) ? w.ammo : "∞"}</span></button>`).join("")}</div><p id="weapon-info" class="weapon-info"></p></div>
+            <div class="aim-control"><div class="control-heading"><label class="micro-label" for="angle">02 / ANGLE</label><output id="angle-output" for="angle">55<span>°</span></output></div><div class="range-line"><button class="adjust" data-adjust="angle:-1" aria-label="Decrease angle">−</button><input id="angle" type="range" min="0" max="180" step="0.1" value="55" aria-label="Firing angle"><button class="adjust" data-adjust="angle:1" aria-label="Increase angle">+</button></div><div class="range-labels"><span>RIGHT 0°</span><span>LEFT 180°</span></div></div>
+            <div class="aim-control"><div class="control-heading"><label class="micro-label" for="power">03 / POWER</label><output id="power-output" for="power">64<span>%</span></output></div><div class="range-line"><button class="adjust" data-adjust="power:-1" aria-label="Decrease power">−</button><input id="power" type="range" min="0" max="100" step="0.1" value="64" aria-label="Firing power"><button class="adjust" data-adjust="power:1" aria-label="Increase power">+</button></div><div class="range-labels"><span>A LITTLE</span><span>A LOT</span></div></div>
             <button class="fire-button" id="fire" disabled>${icon("target")}<span>FIRE<small>SPACE TO SEND IT</small></span>${icon("arrow")}</button></div>
           </section>
           <div class="under-field"><span id="status" role="status" aria-live="polite"><span class="live-dot"></span> Six weapons. Destructible terrain. Zero hard feelings.</span><span class="keyboard-hints"><kbd>←</kbd><kbd>→</kbd> angle <kbd>↑</kbd><kbd>↓</kbd> power <kbd>1–6</kbd> weapons</span></div>
         </main>
-        <footer><span>BUILT FOR GOOD OLD-FASHIONED RIVALRY.</span><div><button id="install" hidden>INSTALL GAME ↗</button><span>NO ACCOUNTS. NO ADS. JUST ARTILLERY.</span><span class="version">V.1.0</span></div></footer>
-      </div>`;
+        <footer><span>BUILT FOR GOOD OLD-FASHIONED RIVALRY.</span><div><button id="install" hidden>INSTALL GAME ↗</button><span>NO ACCOUNTS. NO ADS. JUST ARTILLERY.</span><span class="version">V.2.0</span></div></footer>
+      </div><div id="achievement-toast" class="achievement-toast" role="status" aria-live="polite" hidden></div>`;
     this.dialog.className = "modal";
     document.body.append(this.dialog);
     this.bind();
@@ -97,6 +135,11 @@ export class AppUI {
       scene.startMatch(this.settings, true, 2026);
       this.restoreAudio();
       this.sync();
+      if (this.pendingStart) {
+        const pending = this.pendingStart;
+        this.pendingStart = undefined;
+        this.start(pending.mode, pending.seed);
+      }
     };
   }
   private restoreAudio(): void {
@@ -142,6 +185,11 @@ export class AppUI {
     });
   }
   private bind(): void {
+    this.click("quick-play", () => {
+      this.settings = quickPlaySettings(Math.random, this.settings);
+      this.start("ai");
+    });
+    this.click("records", () => this.showRecord());
     this.click("play-ai", () => this.start("ai"));
     this.click("play-local", () => this.start("local"));
     this.click("settings", () => this.showSettings("menu"));
@@ -177,34 +225,28 @@ export class AppUI {
     document
       .querySelectorAll<HTMLButtonElement>("[data-adjust]")
       .forEach((button) => {
-        let interval: ReturnType<typeof setInterval> | undefined;
-        let repeat: ReturnType<typeof setTimeout> | undefined;
-        const adjust = () => {
-          if (!this.scene?.canAim) return;
-          const [key, change] = button.dataset.adjust!.split(":");
-          const tank = this.scene.match.current;
-          this.scene.setAim(
-            tank.angle + (key === "angle" ? +change : 0),
-            tank.power + (key === "power" ? +change : 0),
-          );
-        };
-        const stop = () => {
-          clearInterval(interval);
-          clearTimeout(repeat);
-        };
         button.addEventListener("pointerdown", (e) => {
           e.preventDefault();
           button.setPointerCapture(e.pointerId);
-          adjust();
-          repeat = setTimeout(() => {
-            interval = setInterval(adjust, 55);
-          }, 280);
+          const [axis, direction] = button.dataset.adjust!.split(":");
+          this.scene?.holdAim(
+            e.pointerId,
+            axis as "angle" | "power",
+            +direction,
+          );
         });
+        const stop = (e: PointerEvent) => this.scene?.releaseAim(e.pointerId);
         button.addEventListener("pointerup", stop);
         button.addEventListener("pointercancel", stop);
         button.addEventListener("lostpointercapture", stop);
-        button.addEventListener("click", (event) => {
-          if (event.detail === 0) adjust();
+        button.addEventListener("click", (e) => {
+          if (e.detail !== 0 || !this.scene?.canAim) return;
+          const [axis, direction] = button.dataset.adjust!.split(":");
+          const tank = this.scene.match.current;
+          this.scene.setAim(
+            tank.angle + (axis === "angle" ? +direction : 0),
+            tank.power + (axis === "power" ? +direction : 0),
+          );
         });
       });
     window.addEventListener("keydown", (event) => {
@@ -258,18 +300,21 @@ export class AppUI {
   private selectWeapon(id: WeaponId): void {
     if (this.scene?.canAim && this.scene.match.current.ammo[id] > 0) {
       this.scene.match.current.weapon = id;
-      this.scene.soundFX.ui();
+      this.scene.soundFX.select(WEAPONS.findIndex((w) => w.id === id));
       this.sync();
     }
   }
-  private start(mode: Settings["mode"]): void {
-    if (!this.ready || !this.scene) return;
+  private start(mode: Settings["mode"], seed?: number): void {
+    if (!this.ready || !this.scene) {
+      this.pendingStart = { mode, seed };
+      return;
+    }
     this.dialog.close();
     this.screen = "game";
     this.settings.mode = mode;
     this.save();
     this.scene.soundFX.unlock();
-    this.scene.startMatch(this.settings);
+    this.scene.startMatch(this.settings, false, seed);
     this.sync();
   }
   private home(): void {
@@ -283,6 +328,7 @@ export class AppUI {
     this.sync();
   }
   private open(content: string): void {
+    this.dialog.classList.remove("results-modal");
     this.dialog.innerHTML = content;
     if (!this.dialog.open) this.dialog.showModal();
     this.dialog.querySelector("[data-close]")?.addEventListener("click", () => {
@@ -300,6 +346,7 @@ export class AppUI {
       this.scene.match.phase === "over"
     )
       return;
+    this.scene.clearInput();
     this.scene.paused = true;
     this.open(
       `${this.heading("TAKE A BREATHER", "Hold your fire.")}<p>The hills aren’t going anywhere. Yet.</p><div class="modal-actions"><button class="button primary" id="resume">Resume match ${icon("arrow")}</button><button class="button secondary" id="restart">Restart match</button><button class="button secondary" id="pause-settings">Sound & match settings</button><button class="text-button" id="home">Back to main menu</button></div>`,
@@ -317,7 +364,7 @@ export class AppUI {
     this.settingsReturn = from;
     const s = this.settings;
     this
-      .open(`${this.heading("YOUR BATTLE, YOUR RULES", "Set the scene.")}<p>${from === "pause" ? "Match changes apply when you restart." : "Make yourself at home. Then blow it up."}</p><form id="settings-form" class="settings-grid">
+      .open(`${this.heading("YOUR BATTLE, YOUR RULES", "Set the scene.")}<p>${from === "pause" ? "Sound, aiming & motion apply now; battle rules apply on restart." : "Make yourself at home. Then blow it up."}</p><form id="settings-form" class="settings-grid">
       <label>Players / tanks<select name="players">${[2, 3, 4].map((n) => `<option value="${n}" ${s.players === n ? "selected" : ""}>${n} tanks (${n - 1} AI in solo)</option>`).join("")}</select></label>
       <label>AI difficulty<select name="difficulty">${["easy", "normal", "hard"].map((d) => `<option value="${d}" ${s.difficulty === d ? "selected" : ""}>${d[0].toUpperCase() + d.slice(1)}</option>`).join("")}</select></label>
       <label>Landscape<select name="theme">${Object.entries(THEMES)
@@ -328,6 +375,15 @@ export class AppUI {
         .join("")}</select></label>
       <label>Starting health<select name="health">${[75, 100, 150].map((n) => `<option value="${n}" ${s.health === n ? "selected" : ""}>${n} HP</option>`).join("")}</select></label>
       <label class="toggle-label">Wind<input name="wind" type="checkbox" ${s.wind ? "checked" : ""}></label>
+      <label class="toggle-label">Explosive crates<input name="crates" type="checkbox" ${s.crates ? "checked" : ""}></label>
+      <label class="toggle-label">Aim preview<input name="preview" type="checkbox" ${s.preview ? "checked" : ""}></label>
+      <label class="toggle-label">Reduced motion<input name="reducedMotion" type="checkbox" ${s.reducedMotion ? "checked" : ""}></label>
+      <label>Aiming speed<select name="inputSpeed">${Object.keys(INPUT_SPEED)
+        .map(
+          (id) =>
+            `<option value="${id}" ${s.inputSpeed === id ? "selected" : ""}>${id[0].toUpperCase() + id.slice(1)}</option>`,
+        )
+        .join("")}</select></label>
       <label class="toggle-label">Sound effects<input name="sound" type="checkbox" ${this.scene?.soundFX.enabled ? "checked" : ""}></label>
       <label class="volume-label">Volume<input name="volume" type="range" min="0" max="100" value="${Math.round((this.scene?.soundFX.volume ?? 0.65) * 100)}"></label>
       <button class="button primary full-width" type="submit">Save settings ${icon("arrow")}</button></form>`);
@@ -352,9 +408,19 @@ export class AppUI {
         theme: data.get("theme") as Settings["theme"],
         health: +data.get("health")!,
         wind: data.has("wind"),
+        crates: data.has("crates"),
+        preview: data.has("preview"),
+        reducedMotion: data.has("reducedMotion"),
+        inputSpeed: data.get("inputSpeed") as Settings["inputSpeed"],
       };
       this.save();
       if (this.settingsReturn === "pause") {
+        if (this.scene)
+          Object.assign(this.scene.match.settings, {
+            preview: this.settings.preview,
+            reducedMotion: this.settings.reducedMotion,
+            inputSpeed: this.settings.inputSpeed,
+          });
         this.pause();
       } else {
         this.dialog.close();
@@ -367,7 +433,7 @@ export class AppUI {
     this.beforeHelpPaused = this.scene?.paused ?? false;
     if (this.scene && this.screen === "game") this.scene.paused = true;
     this.open(
-      `${this.heading("FIELD MANUAL / 001", "Aim high. Hit hard.")}<p>Last tank standing wins. Each turn, pick a weapon, set your angle and power, and send it.</p><div class="help-steps"><div><b>01</b><p><strong>Find your angle.</strong><br>0° fires right. 90° fires up. 180° fires left. Use ← / → or the angle slider.</p></div><div><b>02</b><p><strong>Give it some power.</strong><br>More power sends your shell further. Adjust with ↑ / ↓. Watch the wind before firing.</p></div><div><b>03</b><p><strong>Make a crater.</strong><br>Press Space or FIRE. Direct hits hurt most. Craters drop tanks and cause fall damage. Number keys 1–6 switch weapons.</p></div></div><p class="help-note">Local multiplayer: pass the device when the next tank’s name appears. Escape pauses. On mobile, use the sliders or hold the + / − buttons.</p><button class="button primary" id="got-it">Got it. Let’s play. ${icon("arrow")}</button>`,
+      `${this.heading("FIELD MANUAL / 001", "Aim high. Hit hard.")}<p>Last tank standing wins. Each turn, pick a weapon, set your angle and power, and send it.</p><div class="help-steps"><div><b>01</b><p><strong>Find your angle.</strong><br>0° fires right. 90° fires up. 180° fires left. Use ← / → or the angle slider.</p></div><div><b>02</b><p><strong>Give it some power.</strong><br>More power sends your shell further. Adjust with ↑ / ↓. Watch the wind before firing.</p></div><div><b>03</b><p><strong>Make a crater.</strong><br>Press Space or FIRE. Direct hits hurt most. Craters drop tanks and cause fall damage. Number keys 1–6 switch weapons. Orange crates explode and can trigger their neighbors. Use them to your advantage.</p></div></div><p class="help-note">Local multiplayer: pass the device when the next tank’s name appears. Escape pauses. On mobile, use the sliders or hold the + / − buttons. Aim preview, input speed, and reduced motion are in Match settings.</p><button class="button primary" id="got-it">Got it. Let’s play. ${icon("arrow")}</button>`,
     );
     this.click("got-it", () => {
       if (this.beforeHelpPaused) this.pause();
@@ -382,22 +448,85 @@ export class AppUI {
     const match = this.scene!.match,
       winner = match.tanks.find((t) => t.id === match.winnerId);
     this.open(
-      `${this.heading("THE DUST HAS SETTLED", winner ? `${winner.name} takes the hill.` : "Mutual destruction.")}<p>${winner ? "One tiny tank. One very big victory." : "Nobody survived that one. Call it a draw."} ${match.turn} turns of glorious trouble.</p><div class="results"><div class="result-row result-heading"><span>TANK</span><span>DAMAGE</span><span>SHOTS</span></div>${[
+      `${this.heading("THE DUST HAS SETTLED", winner ? `${winner.name} takes the hill.` : "Mutual destruction.")}<p>${winner ? "One tiny tank. One very big victory." : "Nobody survived that one. Call it a draw."} ${match.turn} turns · <strong>${formatDuration(match.elapsed)}</strong> active play · best chain ${match.longestChain}×</p><div class="results"><div class="result-row result-heading"><span>TANK</span><span>KILLS</span><span>DAMAGE</span><span>SHOTS</span><span>HIT %</span></div>${[
         ...match.tanks,
       ]
         .sort((a, b) => b.health - a.health || b.damage - a.damage)
         .map(
           (t) =>
-            `<div class="result-row"><strong style="color:${t.color}">${t.id === winner?.id ? "★ " : ""}${t.name}</strong><span>${t.damage}</span><span>${t.shots}</span></div>`,
+            `<div class="result-row"><strong style="color:${t.color}">${t.id === winner?.id ? "★ " : ""}${t.name}</strong><span>${t.kills}</span><span>${t.damage}</span><span>${t.shots}</span><span>${accuracy(t)}%</span></div>`,
         )
         .join(
           "",
-        )}</div><div class="modal-actions"><button class="button primary" id="rematch">One more round ${icon("arrow")}</button><button class="button secondary" id="results-home">Main menu</button></div>`,
+        )}</div><p class="result-note">Accuracy = shots that damaged an opponent. Kills = tanks destroyed.</p><div class="modal-actions"><button class="button primary" id="rematch">One more round ${icon("arrow")}</button><div class="result-options"><button class="button secondary" id="same-map">Replay this map</button><button class="button secondary" id="results-home">Main menu</button></div></div>`,
     );
-    // A finished match stays on its results until a deliberate rematch/menu action.
+    this.dialog.classList.add("results-modal");
     this.dialog.querySelector("[data-close]")?.remove();
-    this.click("rematch", () => this.start(this.settings.mode));
+    const rematch = (same: boolean) => {
+      this.settings = { ...match.settings };
+      this.start(match.settings.mode, same ? match.seed : undefined);
+    };
+    this.click("rematch", () => rematch(false));
+    this.click("same-map", () => rematch(true));
     this.click("results-home", () => this.home());
+  }
+  private saveRecord(): void {
+    try {
+      localStorage.setItem(RECORD_KEY, JSON.stringify(this.record));
+    } catch {
+      /* Records remain available for this session. */
+    }
+  }
+  private notifyAchievements(ids: AchievementId[]): void {
+    if (!ids.length) return;
+    const toast = this.byId("achievement-toast");
+    toast.innerHTML = `<span>★ ACHIEVEMENT UNLOCKED</span><strong>${ids.map((id) => ACHIEVEMENTS.find((a) => a.id === id)!.name).join(" · ")}</strong>`;
+    toast.hidden = false;
+    clearTimeout(this.achievementTimer);
+    this.achievementTimer = setTimeout(() => {
+      toast.hidden = true;
+    }, 4500);
+  }
+  private captureRecord(match: Match): void {
+    if (
+      match.tanks[0].longestChain >= 2 &&
+      !this.record.achievements.includes("chain-reaction")
+    ) {
+      this.record.achievements.push("chain-reaction");
+      this.saveRecord();
+      this.notifyAchievements(["chain-reaction"]);
+    }
+    if (match.phase !== "over" || this.recordedMatch === match) return;
+    this.recordedMatch = match;
+    const updated = updateRecord(this.record, resultFor(match));
+    this.record = updated.record;
+    this.saveRecord();
+    this.notifyAchievements(updated.unlocked);
+  }
+  private showRecord(): void {
+    if (this.scene && this.screen === "game") {
+      this.scene.paused = true;
+      this.scene.clearInput();
+    }
+    const r = this.record;
+    this.open(
+      `${this.heading("LOCAL ARCADE RECORD", "A little bragging rights.")}<p>Your record as Clover (Player 1), across completed solo and local matches. Saved on this device.</p><div class="record-grid">${[
+        [r.wins, "WINS"],
+        [r.losses, "LOSSES"],
+        [r.matches, "MATCHES"],
+        [r.damage, "DAMAGE DEALT"],
+        [r.bestAccuracy + "%", "BEST ACCURACY"],
+        [r.biggestHit, "LARGEST HIT"],
+        [r.longestChain + "×", "LONGEST CHAIN"],
+      ]
+        .map(
+          ([value, label]) =>
+            `<div><strong>${value}</strong><span>${label}</span></div>`,
+        )
+        .join(
+          "",
+        )}</div><div class="achievement-list">${ACHIEVEMENTS.map((a) => `<div class="achievement ${r.achievements.includes(a.id) ? "earned" : ""}"><span>${r.achievements.includes(a.id) ? "★" : "◇"}</span><div><strong>${a.name}</strong><p>${a.description}</p></div></div>`).join("")}</div>`,
+    );
   }
   sync(): void {
     const scene = this.scene;
@@ -405,13 +534,14 @@ export class AppUI {
     const match = scene.match,
       tank = match.current,
       inGame = this.screen === "game";
+    if (inGame) this.captureRecord(match);
     this.byId("menu").hidden = inGame;
     document.querySelector(".battlefield")!.classList.toggle("home", !inGame);
     this.byId("controls").classList.toggle("inactive", !inGame);
     this.byId<HTMLButtonElement>("pause").disabled =
       !inGame || match.phase === "over";
     this.byId("match-mode").textContent = inGame
-      ? this.settings.mode === "ai"
+      ? match.settings.mode === "ai"
         ? "SOLO SKIRMISH"
         : "PASS & PLAY"
       : "THE PROVING GROUNDS";
@@ -425,12 +555,23 @@ export class AppUI {
     this.byId("turn-label").textContent = inGame
       ? `TURN ${String(match.turn).padStart(2, "0")}`
       : "READY WHEN YOU ARE";
-    this.byId("players").innerHTML = match.tanks
+    const playersHTML = match.tanks
       .map(
         (t) =>
           `<div class="player-card ${inGame && t.id === tank.id ? "active" : ""} ${t.health <= 0 ? "eliminated" : ""}" style="--tank-color:${t.color}"><span class="player-avatar">${tankLogo}</span><div class="player-details"><div><strong>${t.name}</strong><span>${t.ai ? "CPU" : match.settings.mode === "ai" ? "YOU" : `P${t.id + 1}`}</span></div><div class="health-track"><i style="width:${(t.health / match.settings.health) * 100}%"></i></div></div><span class="health-number">${t.health}<small>HP</small></span></div>`,
       )
       .join("");
+    if (playersHTML !== this.playerSignature) {
+      this.byId("players").innerHTML = playersHTML;
+      this.playerSignature = playersHTML;
+    }
+    const weapon = WEAPONS.find((w) => w.id === tank.weapon)!;
+    this.byId("weapon-info").innerHTML =
+      `<strong>${weapon.name}</strong> ${weapon.description}`;
+    document.body.classList.toggle(
+      "reduced-motion",
+      match.settings.reducedMotion,
+    );
     this.byId("wind-value").textContent =
       match.wind === 0
         ? "CALM"
@@ -469,11 +610,14 @@ export class AppUI {
           : "∞";
       });
     this.byId<HTMLButtonElement>("fire").disabled = !scene.canAim;
-    this.byId("fire").querySelector("small")!.textContent = tank.ai
-      ? "CPU IS AIMING"
-      : match.phase === "flight"
+    this.byId("fire").querySelector("small")!.textContent =
+      match.phase === "flight"
         ? "SHOT IN FLIGHT"
-        : "SPACE TO SEND IT";
+        : match.phase === "settle"
+          ? "RESOLVING IMPACT"
+          : tank.ai
+            ? "CPU IS AIMING"
+            : "SPACE TO SEND IT";
     const status = !inGame
       ? "Six weapons. Destructible terrain. Zero hard feelings."
       : match.phase === "over"
@@ -482,9 +626,11 @@ export class AppUI {
           ? "Match paused."
           : match.phase === "flight"
             ? "Incoming. Let gravity do its thing."
-            : tank.ai
-              ? `${tank.name} is lining up a shot…`
-              : `You’re up, ${tank.name}. ${weaponByName(tank.weapon)} loaded.`;
+            : match.phase === "settle"
+              ? "Let the dust settle…"
+              : tank.ai
+                ? `${tank.name} is lining up a shot…`
+                : `You’re up, ${tank.name}. ${weaponByName(tank.weapon)} loaded.`;
     this.byId("status").innerHTML = `<span class="live-dot"></span>${status}`;
     this.byId("sound").innerHTML = icon(
       scene.soundFX.enabled ? "sound" : "mute",

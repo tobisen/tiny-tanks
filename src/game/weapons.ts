@@ -16,6 +16,9 @@ export interface Weapon {
   color: number;
   behavior: "shell" | "spread" | "cluster" | "penetrate";
   sound: "shell" | "heavy";
+  speed: number;
+  recoil: number;
+  shake: number;
 }
 export const WEAPONS: readonly Weapon[] = [
   {
@@ -25,10 +28,13 @@ export const WEAPONS: readonly Weapon[] = [
     description: "The trusty all-rounder. Unlimited ammo.",
     ammo: Infinity,
     damage: 43,
-    radius: 49,
+    radius: 46,
     color: 0xf6dfac,
     behavior: "shell",
     sound: "shell",
+    speed: 1.08,
+    recoil: 5,
+    shake: 0.0008,
   },
   {
     id: "heavy",
@@ -36,11 +42,14 @@ export const WEAPONS: readonly Weapon[] = [
     short: "Heavy",
     description: "More punch. A bigger crater.",
     ammo: 3,
-    damage: 65,
-    radius: 68,
+    damage: 74,
+    radius: 59,
     color: 0xffb570,
     behavior: "shell",
     sound: "heavy",
+    speed: 0.94,
+    recoil: 9,
+    shake: 0.003,
   },
   {
     id: "triple",
@@ -48,11 +57,14 @@ export const WEAPONS: readonly Weapon[] = [
     short: "Triple",
     description: "Three shells. One wide spread.",
     ammo: 3,
-    damage: 29,
-    radius: 36,
+    damage: 27,
+    radius: 32,
     color: 0xc8ed86,
     behavior: "spread",
     sound: "shell",
+    speed: 1.02,
+    recoil: 6,
+    shake: 0.001,
   },
   {
     id: "cluster",
@@ -60,11 +72,14 @@ export const WEAPONS: readonly Weapon[] = [
     short: "Cluster",
     description: "Splits into five bomblets on descent.",
     ammo: 2,
-    damage: 30,
-    radius: 36,
+    damage: 24,
+    radius: 32,
     color: 0xe3a0ec,
     behavior: "cluster",
     sound: "shell",
+    speed: 0.92,
+    recoil: 5,
+    shake: 0.0015,
   },
   {
     id: "bunker",
@@ -72,11 +87,14 @@ export const WEAPONS: readonly Weapon[] = [
     short: "Bunker",
     description: "Digs through the ground before detonating.",
     ammo: 2,
-    damage: 62,
-    radius: 61,
+    damage: 57,
+    radius: 54,
     color: 0x9bcfff,
     behavior: "penetrate",
     sound: "heavy",
+    speed: 1.05,
+    recoil: 8,
+    shake: 0.003,
   },
   {
     id: "mega",
@@ -84,11 +102,14 @@ export const WEAPONS: readonly Weapon[] = [
     short: "Mega",
     description: "One shot. A very big statement.",
     ammo: 1,
-    damage: 95,
-    radius: 108,
+    damage: 88,
+    radius: 100,
     color: 0xff8f73,
     behavior: "shell",
     sound: "heavy",
+    speed: 0.83,
+    recoil: 12,
+    shake: 0.0045,
   },
 ];
 export type Ammo = Record<WeaponId, number>;

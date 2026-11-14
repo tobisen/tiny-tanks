@@ -1,4 +1,4 @@
-import { WORLD } from "./config";
+import { CRATES, WORLD } from "./config";
 import type { Terrain } from "./terrain";
 export interface Body {
   x: number;
@@ -11,9 +11,10 @@ export function launch(
   y: number,
   angle: number,
   power: number,
+  speedMultiplier = 1,
 ): Body {
   const r = (angle * Math.PI) / 180,
-    speed = 80 + power * 4.8;
+    speed = (WORLD.minSpeed + power * WORLD.powerSpeed) * speedMultiplier;
   return {
     x: x + Math.cos(r) * 22,
     y: y - Math.sin(r) * 22,
@@ -43,6 +44,13 @@ export interface Collision {
   y: number;
   tank?: number;
   terrain: boolean;
+  crate?: number;
+}
+export interface CrateTarget {
+  id: number;
+  x: number;
+  y: number;
+  active: boolean;
 }
 export function sweep(
   from: Body,
@@ -50,6 +58,7 @@ export function sweep(
   terrain: Terrain,
   tanks: readonly Target[],
   ignore: number,
+  crates: readonly CrateTarget[] = [],
 ): Collision | undefined {
   const steps = Math.max(
     1,
@@ -66,6 +75,14 @@ export function sweep(
         Math.hypot(x - tank.x, y - (tank.y - 7)) < WORLD.tankRadius
       )
         return { x, y, tank: tank.id, terrain: false };
+    for (const crate of crates)
+      if (
+        crate.active &&
+        Math.abs(x - crate.x) <= CRATES.halfWidth &&
+        y <= crate.y &&
+        y >= crate.y - CRATES.height
+      )
+        return { x, y, crate: crate.id, terrain: false };
     if (y >= terrain.at(x)) return { x, y, terrain: true };
   }
 }
@@ -75,8 +92,12 @@ export function blastDamage(
   base: number,
   direct = false,
 ): number {
-  if (direct) return Math.round(base * 1.35);
+  if (direct) return Math.round(base * WORLD.directMultiplier);
   return Math.round(
-    base * Math.pow(Math.max(0, 1 - distance / (radius + 12)), 0.8),
+    base *
+      Math.pow(
+        Math.max(0, 1 - distance / (radius + WORLD.damagePadding)),
+        WORLD.damageExponent,
+      ),
   );
 }

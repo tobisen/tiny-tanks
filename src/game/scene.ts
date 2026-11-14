@@ -1,29 +1,20 @@
 import Phaser from "phaser";
 import { chooseShot } from "./ai";
 import { AudioManager } from "./audio";
-import { clamp, random, THEMES, WORLD, type Settings } from "./config";
+import {
+  clamp,
+  DEFAULT_SETTINGS,
+  INPUT_SPEED,
+  random,
+  THEMES,
+  WORLD,
+  type Settings,
+} from "./config";
 import { Match, type GameEvent, type Tank } from "./match";
 import { integrate, launch } from "./physics";
 import { weaponById } from "./weapons";
+import { CombatEffects } from "./effects";
 
-interface Particle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  life: number;
-  max: number;
-  size: number;
-  color: number;
-  gravity: number;
-}
-interface Flash {
-  x: number;
-  y: number;
-  radius: number;
-  age: number;
-  color: number;
-}
 interface TankView {
   graphics: Phaser.GameObjects.Graphics;
   name: Phaser.GameObjects.Text;
@@ -42,7 +33,16 @@ export class BattleScene extends Phaser.Scene {
   private terrainGraphics!: Phaser.GameObjects.Graphics;
   private background!: Phaser.GameObjects.Graphics;
   private cloudGraphics!: Phaser.GameObjects.Graphics;
-  private effects!: Phaser.GameObjects.Graphics;
+  private effects!: CombatEffects;
+  private crateGraphics!: Phaser.GameObjects.Graphics;
+  private scars: { x: number; radius: number }[] = [];
+  private originalTerrain = new Float64Array(WORLD.width + 1);
+  private floating = new Set<Phaser.GameObjects.Text>();
+  private touchHolds = new Map<
+    number,
+    { axis: "angle" | "power"; direction: number }
+  >();
+  private holdTime = 0;
   private aimGraphics!: Phaser.GameObjects.Graphics;
   private projectileGraphics!: Phaser.GameObjects.Graphics;
   private tankViews: TankView[] = [];
@@ -50,8 +50,6 @@ export class BattleScene extends Phaser.Scene {
   private accumulator = 0;
   private aiClock = 0;
   private aiShot?: ReturnType<typeof chooseShot>;
-  private particles: Particle[] = [];
-  private flashes: Flash[] = [];
   private trails = new Map<number, { x: number; y: number }[]>();
   private ambient = 0;
   private toast?: Phaser.GameObjects.Text;
@@ -65,7 +63,8 @@ export class BattleScene extends Phaser.Scene {
     this.terrainGraphics = this.add.graphics();
     this.aimGraphics = this.add.graphics();
     this.projectileGraphics = this.add.graphics();
-    this.effects = this.add.graphics().setDepth(10);
+    this.crateGraphics = this.add.graphics().setDepth(3);
+    this.effects = new CombatEffects(this.add.graphics().setDepth(10));
     window.addEventListener("keydown", (event: KeyboardEvent) => {
       if (
         (event.target as HTMLElement)?.matches("input,select") ||
@@ -77,18 +76,8 @@ export class BattleScene extends Phaser.Scene {
     window.addEventListener("keyup", (event: KeyboardEvent) =>
       this.held.delete(event.code),
     );
-    this.game.events.on(Phaser.Core.Events.BLUR, () => this.held.clear());
-    this.startMatch(
-      {
-        mode: "ai",
-        players: 3,
-        difficulty: "normal",
-        wind: true,
-        theme: "green",
-        health: 100,
-      },
-      true,
-    );
+    this.game.events.on(Phaser.Core.Events.BLUR, () => this.clearInput());
+    this.startMatch({ ...DEFAULT_SETTINGS }, true);
     this.onReady();
   }
   startMatch(settings: Settings, demo = false, seed?: number): void {
@@ -98,10 +87,18 @@ export class BattleScene extends Phaser.Scene {
     this.aiClock = 0;
     this.aiShot = undefined;
     this.accumulator = 0;
-    this.particles = [];
-    this.flashes = [];
+    this.effects.clear();
+    this.scars = [];
+    this.originalTerrain.set(this.match.terrain.heights);
+    this.cameras.main.setScroll(0, 0);
+    this.cameras.main.shakeEffect.reset();
+    for (const text of this.floating) {
+      this.tweens.killTweensOf(text);
+      text.destroy();
+    }
+    this.floating.clear();
     this.trails.clear();
-    this.held.clear();
+    this.clearInput();
     this.terrainVersion = -1;
     this.toast?.destroy();
     this.toast = undefined;
@@ -141,13 +138,35 @@ export class BattleScene extends Phaser.Scene {
   fire(): void {
     if (this.demo || this.paused || this.match.current.ai) return;
     this.soundFX.unlock();
-    if (this.match.fire()) this.onChange();
+    if (this.match.fire()) {
+      this.clearInput();
+      this.onChange();
+    }
   }
   setAim(angle: number, power: number): void {
     if (!this.canAim) return;
+    this.soundFX.aim();
     this.match.current.angle = clamp(angle, 0, 180);
     this.match.current.power = clamp(power, 0, 100);
     this.onChange();
+  }
+  clearInput(): void {
+    this.held.clear();
+    this.touchHolds.clear();
+    this.holdTime = 0;
+  }
+  holdAim(pointer: number, axis: "angle" | "power", direction: number): void {
+    if (!this.canAim) return;
+    this.soundFX.unlock();
+    this.touchHolds.set(pointer, { axis, direction });
+    this.holdTime = 0;
+    this.setAim(
+      this.match.current.angle + (axis === "angle" ? direction : 0),
+      this.match.current.power + (axis === "power" ? direction : 0),
+    );
+  }
+  releaseAim(pointer: number): void {
+    this.touchHolds.delete(pointer);
   }
   get canAim(): boolean {
     return (
@@ -161,6 +180,7 @@ export class BattleScene extends Phaser.Scene {
     const g = this.background,
       t = THEMES[this.match.settings.theme];
     g.clear();
+    g.fillStyle(t.sky).fillRect(0, -200, WORLD.width, 200);
     const sky = Phaser.Display.Color.IntegerToColor(t.sky),
       horizon = Phaser.Display.Color.IntegerToColor(t.horizon);
     for (let y = 0; y < WORLD.height; y += 4) {
@@ -212,6 +232,33 @@ export class BattleScene extends Phaser.Scene {
       g.closePath();
       g.fillPath();
     }
+    if (this.match.settings.theme === "desert")
+      for (let i = 0; i < 5; i++) {
+        const x = 60 + i * 270,
+          y = 330 + (i % 2) * 35;
+        g.fillStyle(t.far, 0.8).fillPoints(
+          [
+            { x: x - 35, y: y + 65 },
+            { x: x - 22, y },
+            { x: x + 18, y },
+            { x: x + 44, y: y + 65 },
+          ],
+          true,
+        );
+        g.fillStyle(t.sun, 0.13).fillRect(x - 22, y, 40, 4);
+      }
+    if (this.match.settings.theme === "moon") {
+      for (let i = 0; i < 12; i++) {
+        const x = 65 + i * 106,
+          y = 385 + Math.sin(i * 3) * 30;
+        g.lineStyle(2, 0xbac3de, 0.13).strokeEllipse(
+          x,
+          y,
+          25 + (i % 3) * 12,
+          6,
+        );
+      }
+    }
     // Tiny original pine silhouettes give scale to the battlefield.
     if (this.match.settings.theme === "green")
       for (let x = 0; x < WORLD.width; x += 23) {
@@ -239,7 +286,13 @@ export class BattleScene extends Phaser.Scene {
     for (let x = 0; x <= WORLD.width; x += 4)
       g.lineTo(
         x,
-        Math.min(WORLD.height, terrain.at(x) + 59 + Math.sin(x / 70) * 12),
+        Math.min(
+          WORLD.height,
+          Math.max(
+            terrain.at(x),
+            this.originalTerrain[x] + 59 + Math.sin(x / 70) * 12,
+          ),
+        ),
       );
     g.lineTo(WORLD.width, WORLD.height);
     g.closePath();
@@ -262,8 +315,8 @@ export class BattleScene extends Phaser.Scene {
     const rng = random(this.match.seed + 81);
     for (let i = 0; i < 360; i++) {
       const x = rng() * WORLD.width,
-        y = terrain.at(x) + 12 + rng() * 220;
-      if (y < 636) {
+        y = 300 + rng() * 340;
+      if (y < 636 && y > terrain.at(x) + 8) {
         g.fillStyle(i % 3 === 0 ? t.grass : t.accent, i % 3 === 0 ? 0.14 : 0.3);
         g.fillRect(x, y, i % 3 === 0 ? 3 : 5, 2);
       }
@@ -273,6 +326,39 @@ export class BattleScene extends Phaser.Scene {
       g.fillStyle(t.grass, 0.8).fillRect(x, y - 4, 2, 4);
       if (this.match.settings.theme === "green" && x % 3 === 0)
         g.fillRect(x + 3, y - 7, 2, 5);
+    }
+    for (const scar of this.scars) {
+      g.lineStyle(3, t.deep, 0.8);
+      g.beginPath();
+      for (
+        let x = Math.max(0, scar.x - scar.radius);
+        x <= Math.min(WORLD.width, scar.x + scar.radius);
+        x += 2
+      ) {
+        const y = terrain.at(x) + 4;
+        if (x <= Math.max(0, scar.x - scar.radius) + 1) g.moveTo(x, y);
+        else g.lineTo(x, y);
+      }
+      g.strokePath();
+    }
+    // Decorative rocks follow the surface and never participate in collision.
+    for (let i = 0; i < 8; i++) {
+      const x = 75 + i * 155 + (rng() - 0.5) * 50,
+        y = terrain.at(x);
+      if (
+        this.match.tanks.some((t) => Math.abs(t.x - x) < 35) ||
+        this.match.crates.some((c) => Math.abs(c.x - x) < 28)
+      )
+        continue;
+      g.fillStyle(t.deep).fillTriangle(x - 10, y, x - 5, y - 8, x + 9, y);
+      g.fillStyle(t.grass, 0.35).fillTriangle(
+        x - 7,
+        y - 2,
+        x - 4,
+        y - 7,
+        x + 1,
+        y - 2,
+      );
     }
     this.terrainVersion = terrain.version;
   }
@@ -301,11 +387,23 @@ export class BattleScene extends Phaser.Scene {
       g.strokeEllipse(x, y + 4, 49, 14);
       g.fillStyle(color).fillTriangle(
         x,
-        y - 51 + Math.sin(this.ambient * 3) * 3,
+        y -
+          51 +
+          (this.match.settings.reducedMotion
+            ? 0
+            : Math.sin(this.ambient * 3) * 3),
         x - 5,
-        y - 59 + Math.sin(this.ambient * 3) * 3,
+        y -
+          59 +
+          (this.match.settings.reducedMotion
+            ? 0
+            : Math.sin(this.ambient * 3) * 3),
         x + 5,
-        y - 59 + Math.sin(this.ambient * 3) * 3,
+        y -
+          59 +
+          (this.match.settings.reducedMotion
+            ? 0
+            : Math.sin(this.ambient * 3) * 3),
       );
     }
     g.fillStyle(0x102b29, 0.22).fillEllipse(x + 3, y + 5, 43, 10);
@@ -332,6 +430,29 @@ export class BattleScene extends Phaser.Scene {
       .fillRect(x - 9, y - 22, 20, 10);
     g.fillStyle(0xffffff, 0.28).fillRect(x - 7, y - 22, 15, 3);
     g.fillStyle(0x142f32, 0.3).fillRect(x + 5, y - 18, 5, 4);
+    g.lineStyle(1, 0x102b29, 0.45).lineBetween(x - 15, y - 10, x + 14, y - 10);
+    g.fillStyle(0xe5eac5, 0.7)
+      .fillRect(x - 14, y - 13, 3, 3)
+      .fillRect(x + 11, y - 13, 3, 3);
+    g.lineStyle(1, 0x28433b).lineBetween(
+      x - 7,
+      y - 21,
+      x - 8,
+      y - 32 - tank.id * 2,
+    );
+    g.fillStyle(color).fillRect(x - 10, y - 33 - tank.id * 2, 4, 3);
+    g.fillStyle(0x102b29, 0.45).fillRect(x - 4, y - 18, 6, 3);
+    if (tank.health < this.match.settings.health * 0.4) {
+      g.fillStyle(0x25332f, 0.25).fillCircle(
+        x - 9,
+        y -
+          29 -
+          (this.match.settings.reducedMotion
+            ? 0
+            : Math.sin(this.ambient * 2) * 4),
+        5,
+      );
+    }
     const hp = view.health;
     hp.fillStyle(0x102b29, 0.4).fillRect(x - 18, y + 12, 36, 3);
     hp.fillStyle(color).fillRect(
@@ -348,21 +469,35 @@ export class BattleScene extends Phaser.Scene {
     color: number,
     strength: number,
   ): void {
-    for (let i = 0; i < count && this.particles.length < 300; i++) {
-      const angle = Math.random() * Math.PI * 2,
-        speed = (30 + Math.random() * 150) * strength,
-        life = 0.35 + Math.random() * 0.75;
-      this.particles.push({
-        x,
-        y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 50,
-        life,
-        max: life,
-        size: 2 + Math.random() * 5,
-        color,
-        gravity: 200,
-      });
+    this.effects.burst(x, y, count, color, strength);
+  }
+  private drawCrates(): void {
+    const g = this.crateGraphics;
+    g.clear();
+    for (const c of this.match.crates) {
+      if (!c.active) continue;
+      const x = c.x,
+        y = c.y;
+      g.fillStyle(0x173331, 0.2).fillEllipse(x, y + 3, 30, 8);
+      g.fillStyle(0xb8543a).fillRect(x - 11, y - 21, 22, 21);
+      g.fillStyle(0xffbd78)
+        .fillRect(x - 11, y - 21, 22, 3)
+        .fillRect(x - 11, y - 3, 22, 3)
+        .fillRect(x - 11, y - 21, 3, 21)
+        .fillRect(x + 8, y - 21, 3, 21);
+      g.lineStyle(2, 0x693b32)
+        .lineBetween(x - 7, y - 17, x + 6, y - 5)
+        .lineBetween(x + 7, y - 17, x - 6, y - 5);
+      g.fillStyle(0xffe2a4).fillTriangle(x, y - 17, x - 5, y - 7, x + 5, y - 7);
+      g.fillStyle(0x7a3b2d)
+        .fillRect(x - 1, y - 14, 2, 4)
+        .fillRect(x - 1, y - 9, 2, 1);
+      g.fillStyle(
+        0xffd58c,
+        this.match.settings.reducedMotion
+          ? 0.7
+          : 0.55 + Math.sin(this.ambient * 3 + c.id) * 0.25,
+      ).fillRect(x - 2, y - 26, 4, 3);
     }
   }
   private handleEvent(event: GameEvent): void {
@@ -372,82 +507,97 @@ export class BattleScene extends Phaser.Scene {
         r = (tank.angle * Math.PI) / 180;
       const x = event.x + Math.cos(r) * 29,
         y = event.y - Math.sin(r) * 29;
-      this.flashes.push({ x, y, radius: 20, age: 0, color: 0xffefb2 });
+      this.effects.flash(x, y, 12 + w.recoil, w.color);
       this.addParticles(x, y, 9, 0xffdc86, 0.6);
-      this.tankViews[tank.id].recoil = 5;
-      this.soundFX.fire(w.sound === "heavy");
+      this.tankViews[tank.id].recoil = w.recoil;
+      this.soundFX.fire(event.weapon);
     } else if (event.type === "blast") {
       const w = weaponById(event.weapon);
-      this.flashes.push({
-        x: event.x,
-        y: event.y,
-        radius: event.radius,
-        age: 0,
-        color: w.color,
-      });
-      this.addParticles(
+      const color = event.crate ? 0xffc26f : w.color;
+      this.effects.explosion(
         event.x,
         event.y,
-        Math.round(event.radius * 0.55),
-        0xffc77f,
-        event.radius / 55,
-      );
-      this.addParticles(
-        event.x,
-        event.y,
-        16,
+        event.radius,
+        color,
         THEMES[this.match.settings.theme].soil,
-        event.radius / 65,
+        event.underground,
       );
-      this.soundFX.boom(
-        Math.min(0.9, event.radius / 110),
-        event.radius > 70 ? 0.7 : 0.4,
-      );
-      if (event.radius > 55)
-        this.cameras.main.shake(170, Math.min(0.006, event.radius / 22000));
+      this.scars.push({ x: event.x, radius: event.radius });
+      if (this.scars.length > 24) this.scars.shift();
+      this.terrainVersion = -1;
+      this.soundFX.explosion(event.weapon, event.radius, event.crate);
+      if (!this.match.settings.reducedMotion)
+        this.cameras.main.shake(
+          event.crate ? 150 : 110 + w.recoil * 7,
+          event.crate ? 0.003 : w.shake,
+        );
     } else if (event.type === "damage") {
       this.tankViews[event.id].hit = 0.18;
       this.soundFX.hit();
       const text = this.add
-        .text(event.x, event.y - 10, `−${event.amount}`, {
-          fontFamily: "monospace",
-          fontStyle: "bold",
-          fontSize: "24px",
-          color: "#fff4d0",
-          stroke: "#543d36",
-          strokeThickness: 4,
-        })
+        .text(
+          event.x,
+          event.y - 10,
+          `${event.fall ? "↓ " : "−"}${event.amount}`,
+          {
+            fontFamily: "monospace",
+            fontStyle: "bold",
+            fontSize: "24px",
+            color: "#fff4d0",
+            stroke: "#543d36",
+            strokeThickness: 4,
+          },
+        )
         .setOrigin(0.5)
         .setDepth(20);
+      this.floating.add(text);
       this.tweens.add({
         targets: text,
-        y: text.y - 53,
+        y: text.y - (this.match.settings.reducedMotion ? 0 : 53),
         alpha: 0,
         duration: 1150,
         ease: "Cubic.Out",
-        onComplete: () => text.destroy(),
+        onComplete: () => {
+          this.floating.delete(text);
+          text.destroy();
+        },
       });
     } else if (event.type === "death") {
       this.addParticles(event.x, event.y, 30, 0xff927a, 1.3);
-      this.flashes.push({
-        x: event.x,
-        y: event.y,
-        radius: 42,
-        age: 0,
-        color: 0xff927a,
-      });
+      this.effects.flash(event.x, event.y, 42, 0xff927a);
+      this.effects.burst(event.x, event.y, 14, 0x344a40, 1.4, "debris");
       this.soundFX.boom(0.7, 0.65);
     } else if (event.type === "split") {
       this.addParticles(event.x, event.y, 14, 0xe3a0ec, 0.5);
-      this.soundFX.fire();
+      this.effects.flash(event.x, event.y, 24, 0xe3a0ec);
+      this.soundFX.split();
+    } else if (event.type === "penetrate") {
+      this.effects.burst(
+        event.x,
+        event.y,
+        20,
+        THEMES[this.match.settings.theme].soil,
+        0.9,
+        "dirt",
+      );
+      this.soundFX.penetrate();
+    } else if (event.type === "crate") {
+      this.effects.burst(event.x, event.y, 12, 0xffbd78, 1.2, "debris");
+      this.soundFX.crate();
+    } else if (event.type === "chain") {
+      this.announce(`${event.count}× CHAIN REACTION`);
+      this.soundFX.crate(event.count);
     } else if (event.type === "turn") {
+      this.clearInput();
       this.aiClock = 0;
       this.aiShot = undefined;
       this.announce(
         `${this.match.current.name.toUpperCase()}${this.match.current.ai ? " IS AIMING…" : ", YOU’RE UP"}`,
       );
     } else if (event.type === "win") {
-      this.soundFX.victory();
+      if (this.match.settings.mode === "local" || this.match.winnerId === 0)
+        this.soundFX.victory();
+      else this.soundFX.defeat();
       for (let i = 0; i < 5; i++)
         this.time.delayedCall(i * 160, () => {
           if (this.match.phase === "over")
@@ -493,7 +643,9 @@ export class BattleScene extends Phaser.Scene {
   update(_time: number, deltaMs: number): void {
     if (!this.match) return;
     const delta = Math.min(deltaMs / 1000, 0.05);
-    this.ambient += delta;
+    if (!this.paused && !this.match.settings.reducedMotion)
+      this.ambient += delta;
+    this.effects.reducedMotion = this.match.settings.reducedMotion;
     const t = THEMES[this.match.settings.theme],
       cloud = this.cloudGraphics;
     cloud.clear();
@@ -509,36 +661,47 @@ export class BattleScene extends Phaser.Scene {
       }
     if (!this.paused && !this.demo) {
       if (this.canAim) {
-        const angle =
-          (Number(this.held.has("ArrowLeft")) -
-            Number(this.held.has("ArrowRight"))) *
-          delta *
-          40;
-        const power =
-          (Number(this.held.has("ArrowUp")) -
-            Number(this.held.has("ArrowDown"))) *
-          delta *
-          30;
-        if (angle || power)
+        let horizontal =
+          Number(this.held.has("ArrowLeft")) -
+          Number(this.held.has("ArrowRight"));
+        let vertical =
+          Number(this.held.has("ArrowUp")) - Number(this.held.has("ArrowDown"));
+        for (const hold of this.touchHolds.values()) {
+          if (hold.axis === "angle") horizontal += hold.direction;
+          else vertical += hold.direction;
+        }
+        if (horizontal || vertical) {
+          this.holdTime += delta;
+          const speed =
+            INPUT_SPEED[this.match.settings.inputSpeed] *
+            (this.holdTime > 0.45 ? 1.4 : 1);
           this.setAim(
-            this.match.current.angle + angle,
-            this.match.current.power + power,
+            this.match.current.angle +
+              clamp(horizontal, -1, 1) * delta * 40 * speed,
+            this.match.current.power +
+              clamp(vertical, -1, 1) * delta * 30 * speed,
           );
+        } else this.holdTime = 0;
       }
       if (this.match.phase === "aim" && this.match.current.ai) {
         this.aiClock += delta;
-        if (!this.aiShot) this.aiShot = chooseShot(this.match);
-        this.match.current.angle = Phaser.Math.Linear(
-          this.match.current.angle,
-          this.aiShot.angle,
-          Math.min(1, delta * 7),
-        );
-        this.match.current.power = this.aiShot.power;
-        this.match.current.weapon = this.aiShot.weapon;
-        if (this.aiClock > 0.85) {
-          this.match.current.angle = this.aiShot.angle;
-          this.match.fire();
+        if (!this.aiShot && this.aiClock > 0.12) {
+          this.aiShot = chooseShot(this.match);
+          this.match.current.weapon = this.aiShot.weapon;
+          this.match.current.power = this.aiShot.power;
           this.onChange();
+        }
+        if (this.aiShot) {
+          this.match.current.angle = Phaser.Math.Linear(
+            this.match.current.angle,
+            this.aiShot.angle,
+            Math.min(1, delta * 9),
+          );
+          if (this.aiClock > WORLD.aiDelay) {
+            this.match.current.angle = this.aiShot.angle;
+            this.match.fire();
+            this.onChange();
+          }
         }
       }
       this.accumulator += delta;
@@ -551,16 +714,44 @@ export class BattleScene extends Phaser.Scene {
     if (this.terrainVersion !== this.match.terrain.version) this.drawTerrain();
     for (const tank of this.match.tanks)
       this.drawTank(tank, this.tankViews[tank.id], this.paused ? 0 : delta);
+    this.drawCrates();
     this.drawAim();
     this.drawProjectiles();
-    this.drawEffects(this.paused ? 0 : delta);
+    this.effects.draw(this.paused ? 0 : delta, this.match.wind);
+    // Follow only a lone high-flying shell, retaining every living tank in view.
+    let cameraY = 0;
+    if (
+      !this.match.settings.reducedMotion &&
+      this.match.phase === "flight" &&
+      this.match.projectiles.length === 1
+    ) {
+      const p = this.match.projectiles[0],
+        lowest = Math.max(
+          ...this.match.tanks.filter((t) => t.health > 0).map((t) => t.y),
+          0,
+        );
+      const room = Math.max(0, WORLD.height - lowest - 55);
+      cameraY = -Math.min(90, room, Math.max(0, 40 - p.y) * 0.35);
+    }
+    if (!this.paused)
+      this.cameras.main.scrollY = Phaser.Math.Linear(
+        this.cameras.main.scrollY,
+        cameraY,
+        Math.min(1, delta * 4),
+      );
   }
   private drawAim(): void {
     const g = this.aimGraphics;
     g.clear();
-    if (!this.canAim) return;
+    if (!this.canAim || !this.match.settings.preview) return;
     const tank = this.match.current,
-      body = launch(tank.x, tank.y - 12, tank.angle, tank.power);
+      body = launch(
+        tank.x,
+        tank.y - 12,
+        tank.angle,
+        tank.power,
+        weaponById(tank.weapon).speed,
+      );
     g.fillStyle(0xfff3d6, 0.55);
     for (let i = 0; i < 12; i++) {
       integrate(body, 0.037, this.match.wind, this.match.gravity);
@@ -607,44 +798,6 @@ export class BattleScene extends Phaser.Scene {
           14,
         );
       }
-    }
-  }
-  private drawEffects(delta: number): void {
-    const g = this.effects;
-    g.clear();
-    for (let i = this.flashes.length - 1; i >= 0; i--) {
-      const f = this.flashes[i];
-      f.age += delta;
-      const progress = f.age / 0.48;
-      if (progress >= 1) {
-        this.flashes.splice(i, 1);
-        continue;
-      }
-      const radius =
-        f.radius * (0.2 + Math.sin((progress * Math.PI) / 2) * 0.8);
-      g.fillStyle(f.color, (1 - progress) * 0.65).fillCircle(f.x, f.y, radius);
-      g.fillStyle(0xfff5cd, Math.max(0, 1 - progress * 3)).fillCircle(
-        f.x,
-        f.y,
-        radius * 0.65,
-      );
-      g.lineStyle(3, f.color, 1 - progress).strokeCircle(
-        f.x,
-        f.y,
-        radius * 1.15,
-      );
-    }
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
-      p.life -= delta;
-      if (p.life <= 0) {
-        this.particles.splice(i, 1);
-        continue;
-      }
-      p.x += p.vx * delta;
-      p.y += p.vy * delta;
-      p.vy += p.gravity * delta;
-      g.fillStyle(p.color, p.life / p.max).fillRect(p.x, p.y, p.size, p.size);
     }
   }
 }

@@ -8,7 +8,27 @@ export const WORLD = {
   tankRadius: 15,
   fallThreshold: 22,
   fallDamage: 0.45,
+  minSpeed: 80,
+  powerSpeed: 4.8,
+  settleDelay: 0.38,
+  aiDelay: 0.62,
+  directMultiplier: 1.35,
+  damagePadding: 12,
+  damageExponent: 0.8,
+  penetrationDepth: 42,
+  spreadAngle: 5.5,
+  startingPower: 52,
+  moonStartingPower: 40,
 } as const;
+export const CRATES = {
+  radius: 96,
+  damage: 58,
+  halfWidth: 11,
+  height: 21,
+  spawnClearance: 84,
+  maxChain: 8,
+} as const;
+export const INPUT_SPEED = { precise: 0.6, normal: 1, fast: 1.65 } as const;
 export type ThemeId = "green" | "desert" | "moon";
 export type Difficulty = "easy" | "normal" | "hard";
 export interface Settings {
@@ -18,6 +38,10 @@ export interface Settings {
   wind: boolean;
   theme: ThemeId;
   health: number;
+  crates: boolean;
+  preview: boolean;
+  reducedMotion: boolean;
+  inputSpeed: keyof typeof INPUT_SPEED;
 }
 export const DEFAULT_SETTINGS: Settings = {
   mode: "ai",
@@ -26,27 +50,44 @@ export const DEFAULT_SETTINGS: Settings = {
   wind: true,
   theme: "green",
   health: 100,
+  crates: true,
+  preview: true,
+  reducedMotion: false,
+  inputSpeed: "normal",
 };
+export function quickPlaySettings(
+  rng: () => number = Math.random,
+  preferences: Partial<Settings> = {},
+): Settings {
+  const themes: ThemeId[] = ["green", "desert", "moon"];
+  return {
+    ...DEFAULT_SETTINGS,
+    preview: preferences.preview ?? true,
+    reducedMotion: preferences.reducedMotion ?? false,
+    inputSpeed: preferences.inputSpeed ?? "normal",
+    theme: themes[Math.min(2, Math.floor(rng() * 3))],
+  };
+}
 export const COLORS = ["#d5f577", "#ff927a", "#8fc8ff", "#dfacfa"];
 export const NAMES = ["Clover", "Ember", "Cobalt", "Nova"];
 export const THEMES = {
   green: {
     name: "Green Hills",
-    sky: 0x7aa9ab,
-    horizon: 0xc2cbb2,
+    sky: 0x87bbbd,
+    horizon: 0xd4dbc0,
     sun: 0xf5d5a0,
     far: 0x86a49b,
     near: 0x567f7c,
-    soil: 0x345649,
+    soil: 0x3a604c,
     deep: 0x29483f,
-    grass: 0xb6d176,
+    grass: 0xc0d77c,
     accent: 0x819c5a,
     gravity: 170,
   },
   desert: {
     name: "Desert",
-    sky: 0xb28c97,
-    horizon: 0xefc39e,
+    sky: 0xc0939b,
+    horizon: 0xf4d2a5,
     sun: 0xffe0a4,
     far: 0xbf9a91,
     near: 0x9d7378,

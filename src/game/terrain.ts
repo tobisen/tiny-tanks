@@ -19,14 +19,15 @@ export class Terrain {
   at(x: number): number {
     return this.heights[clamp(Math.round(x), 0, WORLD.width)];
   }
-  crater(x: number, y: number, radius: number): void {
+  crater(x: number, y: number, radius: number, verticalScale = 1): void {
     for (
       let i = Math.max(0, Math.floor(x - radius));
       i <= Math.min(WORLD.width, Math.ceil(x + radius));
       i++
     ) {
       const dx = i - x;
-      const floor = y + Math.sqrt(Math.max(0, radius * radius - dx * dx));
+      const floor =
+        y + Math.sqrt(Math.max(0, radius * radius - dx * dx)) * verticalScale;
       // A heightmap removes only ground actually reached by the blast.
       if (
         y - Math.sqrt(Math.max(0, radius * radius - dx * dx)) <=
