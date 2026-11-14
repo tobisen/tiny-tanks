@@ -74,6 +74,7 @@ test("production menu, keyboard, six loadouts, pause, settings, local turns and 
     timeout: 20000,
   });
   await expect(page.locator("#match-title")).toContainText("Ember");
+  await expect(page.locator("#status")).toContainText("Ember");
   await expect(page.locator("#fire")).toBeEnabled();
   await page.waitForTimeout(1200);
   await expect(page.locator("#turn-label")).toHaveText("TURN 02");
@@ -116,6 +117,13 @@ test("a complete human vs AI match resolves damage, winner and immediate rematch
   expect(shots).toBeLessThan(8);
   await expect(page.locator(".eliminated")).toHaveCount(1);
   await expect(page.locator(".results")).toContainText("DAMAGE");
+  await expect(page.locator(".results")).toContainText("KILLS");
+  await expect(page.locator(".results")).toContainText("HIT %");
+  const record = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("tiny-tanks-record-v2")!),
+  );
+  expect(record.matches).toBe(1);
+  expect(record.wins + record.losses + record.draws).toBe(1);
   await page.screenshot({
     path: "test-results/match-results.png",
     fullPage: true,
@@ -124,6 +132,15 @@ test("a complete human vs AI match resolves damage, winner and immediate rematch
   await expect(page.locator("#turn-label")).toHaveText("TURN 01");
   await expect(page.locator("#fire")).toBeEnabled();
   await expect(page.locator(".eliminated")).toHaveCount(0);
+  await page.locator("#records").click();
+  await expect(page.getByText("A little bragging rights.")).toBeVisible();
+  await expect(page.locator(".achievement-list .achievement")).toHaveCount(5);
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  expect(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem("tiny-tanks-record-v2")!).matches,
+    ),
+  ).toBe(1);
 });
 
 test("mobile touch aim and fire retain the entire battlefield through orientation changes", async ({
@@ -260,4 +277,69 @@ test("every weapon fires and resolves in the actual renderer", async ({
     });
     await expect(page.locator("#fire")).toBeEnabled();
   }
+});
+
+test("Quick Play resets battle rules in one click, preserves comfort settings, and supports smooth aim holds", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await ready(page);
+  await page.locator("#settings").click();
+  await page.locator("[name=players]").selectOption("4");
+  await page.locator("[name=difficulty]").selectOption("hard");
+  await page.locator("[name=health]").selectOption("150");
+  await page.locator("[name=wind]").uncheck();
+  await page.locator("[name=crates]").uncheck();
+  await page.locator("[name=preview]").uncheck();
+  await page.locator("[name=reducedMotion]").check();
+  await page.locator("[name=inputSpeed]").selectOption("precise");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await page.locator("#quick-play").click();
+  await expect(page.locator("#fire")).toBeEnabled();
+  await expect(page.locator("#players .player-card")).toHaveCount(3);
+  await expect(
+    page.locator(".player-details span").filter({ hasText: "CPU" }),
+  ).toHaveCount(2);
+  const settings = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("tiny-tanks-settings")!),
+  );
+  expect(settings).toMatchObject({
+    mode: "ai",
+    players: 3,
+    difficulty: "normal",
+    health: 100,
+    wind: true,
+    crates: true,
+    preview: false,
+    reducedMotion: true,
+    inputSpeed: "precise",
+  });
+  await expect(page.locator("body")).toHaveClass(/reduced-motion/);
+  await expect(page.locator("#weapon-info")).toContainText("Standard Shell");
+  const before = +(await page.locator("#angle").inputValue());
+  const plus = page.getByRole("button", { name: "Increase angle" });
+  await plus.hover();
+  await page.mouse.down();
+  await page.waitForTimeout(250);
+  await page.mouse.up();
+  expect(+(await page.locator("#angle").inputValue())).toBeGreaterThan(
+    before + 1,
+  );
+  await page.locator("#pause").click();
+  await page.locator("#pause-settings").click();
+  await expect(page.locator("[name=crates]")).toBeChecked();
+  await expect(page.locator("[name=preview]")).not.toBeChecked();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await page.locator("#resume").click();
+  await page.locator("#fire").click();
+  await expect
+    .poll(
+      async () =>
+        (await page.locator("#fire").isEnabled()) ||
+        (await page.locator("#rematch").isVisible()),
+      { timeout: 30000 },
+    )
+    .toBe(true);
+  expect(errors).toEqual([]);
 });

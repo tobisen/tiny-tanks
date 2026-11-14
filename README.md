@@ -1,12 +1,16 @@
-# Tiny Tanks
+# Tiny Tanks — Arcade Edition
 
 Small tanks. Big trouble. An original browser artillery game inspired by the genre’s DOS-era classics, built with strict TypeScript, Phaser 3, and Vite. All graphics and sounds are procedural; there are no external runtime services, accounts, ads, or backend.
 
-![An actual Tiny Tanks local match in the Desert theme, after an impact](docs/gameplay.png)
+![An actual Arcade Edition Mega Bomb and three-crate chain reaction](docs/gameplay.png)
 
 [Main menu screenshot](docs/menu.png)
 
 ## Play
+
+**Quick Play** starts one human against two Normal AI tanks, with a random theme, wind, and explosive crates. Custom solo and local games remain available. Aiming speed, the short trajectory preview, reduced motion, and sound are configurable. Holding touch controls and keyboard arrows uses the same smooth, accelerating input.
+
+Arcade Edition adds layered explosions with smoke, sparks, dirt and debris; weapon-specific recoil, speeds and synthesized sounds; deeper bunker craters; decorative rocks; restrained high-shot camera following; and AI that weighs damage, ammunition, self-hit risk, and crate opportunities. Crate chains resolve in stable order, with a strict eight-crate safety bound. Up to three crates spawn clear of tanks when enabled.
 
 - One human vs 1–3 computer tanks, with Easy, Normal, and Hard AI.
 - 2–4 players sharing one device.
@@ -15,7 +19,7 @@ Small tanks. Big trouble. An original browser artillery game inspired by the gen
 - Green Hills, Desert, and Moon themes. Moon has lower gravity.
 - Keyboard, mouse, and touch controls; synthesized sound with mute and volume settings; offline PWA support.
 
-Last tank standing wins. Local multiplayer advances directly to the next player; pass the device when their name appears. Match settings configure tank count, AI difficulty, wind, terrain, and starting health.
+Last tank standing wins. Local multiplayer advances directly to the next player; pass the device when their name appears. Match settings configure tank count, AI difficulty, wind, terrain, starting health, and crates. Sound, aiming and motion preferences apply immediately; combat settings changed while paused apply on restart.
 
 ## Controls
 
@@ -28,6 +32,14 @@ Last tank standing wins. Local multiplayer advances directly to the next player;
 | Pause         | Escape              | Pause button               |
 
 Angles use physical coordinates: **0° right, 90° up, 180° left**. Wind’s arrow shows its direction; higher numbers bend shots more. Direct hits do extra damage. Removing ground beneath a tank can cause additional fall damage. Cluster bombs split during descent; bunker shells travel into the ground before exploding.
+
+## Local records
+
+The flag button opens your arcade record as **Clover / Player 1**, including local multiplayer. Completed matches contribute wins, losses, matches, damage, best accuracy, largest hit, and longest chain. Accuracy counts shots that damage at least one opponent, once per shot, including fall and crate damage; self hits never count. Damage is actual health removed, excluding overkill and self damage. Match duration counts active simulation time, excluding pauses.
+
+Five local achievements: **First Victory**, **Sharpshooter** (75% accuracy over at least three shots), **Chain Reaction** (two crates in one chain), **Demolition Expert** (500 total damage), and **Comeback Victory** (win after surviving at 25% health). Chain Reaction unlocks immediately; match-based records and other achievements update at results. Storage is optional: the game still works when it is unavailable. Records remain on this browser/device.
+
+Rematch retains the match rules and creates a fresh seed. **Replay this map** retains the seed too. Results show kills, damage, shots, accuracy, duration, and the longest chain.
 
 ## Develop and build
 
@@ -49,7 +61,7 @@ npm run preview
 
 ### Browser verification
 
-The Playwright suite covers local multiplayer, all six loadout selections, keyboard aiming, firing, pause/resume, a full human-vs-AI match, elimination and rematch, touch controls, orientation/resize, manifest/icon loading, and offline reload and gameplay.
+The Playwright suite covers local multiplayer, all six loadout selections, keyboard aiming, firing, pause/resume, a full human-vs-AI match, elimination and rematch, touch controls, orientation/resize, manifest/icon loading, offline reload and gameplay, records, comfort preferences, and one-click Quick Play.
 
 ```sh
 npx playwright install chromium
@@ -101,6 +113,8 @@ The service worker caches the app shell, icons, CSS, JavaScript, and bundled Pha
 - `src/game/weapons.ts`: reusable weapon definitions and ammunition rules.
 - `src/game/ai.ts`: candidate trajectories evaluated with the same physics and terrain collisions as player shots.
 - `src/game/scene.ts`: Phaser rendering, interpolation, visual effects, keyboard aiming, and AI timing.
+- `src/game/crates.ts`, `src/game/records.ts`: safe crate placement, local statistics, and achievement rules.
+- `src/game/effects.ts`: bounded procedural flashes, smoke, sparks, dirt, and debris.
 - `src/game/audio.ts`: original Web Audio synthesis, unlocked by user interaction.
 - `src/ui/app.ts`, `src/styles/main.css`: responsive DOM menus, HUD, controls, settings, results, and install prompt.
 - `src/tests/`: deterministic Vitest rule tests; `tests/`: Playwright browser scenarios.
@@ -110,8 +124,10 @@ The service worker caches the app shell, icons, CSS, JavaScript, and bundled Pha
 
 Rule tests exercise ballistics, wind, swept collision, seeded terrain, craters, blast and direct-hit damage, elimination, turn order, skipped players, winners/draws, ammunition, every weapon behavior, valid AI shots, and complete matches in every theme.
 
-Terrain is a heightmap: it supports craters, but no caves or overhangs. Tanks settle vertically and take fall damage; there is no lateral movement or loose-soil simulation. Portrait mode keeps the entire battlefield visible with controls below; landscape gives tanks more screen space. The canvas adapts its display proportions to compact desktop and mobile layouts while keeping the same logical physics coordinates. AI uses a bounded trajectory search and can miss, particularly with wind and special weapons. Settings changed in a paused match apply to the next restart.
+Terrain is a heightmap: it supports craters, but no caves or overhangs. Tanks settle vertically and take fall damage; there is no lateral movement or loose-soil simulation. Portrait mode keeps the entire battlefield visible with controls below; landscape gives tanks more screen space. The canvas adapts its display proportions to compact desktop and mobile layouts while keeping the same logical physics coordinates. AI uses a bounded trajectory search and can miss, particularly with wind and special weapons. Combat settings changed in a paused match apply to the next restart; aiming, motion, and sound preferences apply immediately.
 
 Browser automation can verify an active service worker, cached offline gameplay, manifest metadata, and responsive touch interactions. It does not verify native OS installation, physical-device performance, or speaker output. Native installation and a physical-device listening/play session remain recommended release checks.
 
-Verified locally on November 14, 2026: **31 Vitest tests**, **5 Playwright production scenarios**, strict TypeScript checking, and the production build passed. The browser suite was run in headless Chrome against `/tiny-tanks/` with GitHub Actions repository-path inference enabled. It included all six weapons firing, a completed match and rematch, desktop/tablet/mobile layouts, touch and keyboard input, and an offline reload followed by a playable turn. Chrome reported no application-level PWA installability errors; native installation remains untested because Playwright contexts are incognito.
+Arcade Edition verification includes the original 31 rule tests plus 17 focused crate, chain termination, statistics, achievement, balance, and Quick Play tests. Six production browser scenarios include the original flows and Quick Play/records. Native OS installation, physical-device performance, and speaker output remain untested; Chrome touch emulation and offline gameplay are covered by browser verification.
+
+Release checks on November 14, 2026: **48 unit tests and six production browser scenarios passed**, as did strict TypeScript checking and the production build under `/tiny-tanks/`. A reproducible legal shot was also played in Chrome to verify a three-crate chain, nearby tank damage, smoke/debris, and the immediate Chain Reaction achievement. Portrait/landscape layouts and a real emulated touch hold were inspected in Chrome. No physical-device or native installation result is implied.
