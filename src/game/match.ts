@@ -6,6 +6,7 @@ import {
   random,
   THEMES,
   WORLD,
+  SUPPLIES,
   type Settings,
 } from "./config";
 import { Terrain } from "./terrain";
@@ -18,6 +19,20 @@ import {
   type Ammo,
   type WeaponId,
 } from "./weapons";
+import { moveTank, resetFuel } from "./movement";
+import {
+  collectSupplies,
+  destroySupplies,
+  spawnSupply,
+  tickSupplies,
+  type SupplyDrop,
+} from "./supplies";
+import {
+  scheduleEnvironment,
+  tickEnvironment,
+  type Tremor,
+} from "./environment";
+export { moveTank, resetFuel, sampleTerrainSlope } from "./movement";
 export interface Tank {
   id: number;
   name: string;
@@ -38,6 +53,7 @@ export interface Tank {
   longestChain: number;
   lowHealth: boolean;
   fuel: number;
+  fuelBonus: number;
   moveX: number;
   moveHeld: number;
 }
@@ -101,6 +117,23 @@ export type GameEvent =
   | { type: "penetrate"; x: number; y: number }
   | { type: "crate"; x: number; y: number; id: number }
   | { type: "chain"; count: number; owner: number }
+  | {
+      type: "supply";
+      action: "drop" | "land" | "pickup" | "destroy";
+      drop: SupplyDrop;
+      tank?: number;
+      text: string;
+    }
+  | {
+      type: "environment";
+      action: "gust" | "warning" | "tremor";
+      id: string;
+      x: number;
+      text: string;
+    }
+  | { type: "direct-hit"; id: number; x: number; y: number; amount: number }
+  | { type: "near-miss"; x: number; y: number }
+  | { type: "duel" }
   | { type: "turn" }
   | { type: "win" };
 export function nextLiving(tanks: readonly Tank[], current: number): number {
@@ -122,10 +155,18 @@ export class Match {
   crates: Crate[];
   projectiles: Projectile[] = [];
   events: GameEvent[] = [];
+  supplies: SupplyDrop[] = [];
+  notice = "";
+  tremor?: Tremor;
+  private duelAnnounced = false;
+  private closePasses = new Map<
+    number,
+    { x: number; y: number; distance: number }
+  >();
   active = 0;
   turn = 1;
   wind = 0;
-  phase: "aim" | "flight" | "settle" | "over" = "aim";
+  phase: "aim" | "flight" | "settle" | "warning" | "over" = "aim";
   winnerId: number | undefined;
   elapsed = 0;
   longestChain = 0;
@@ -142,7 +183,14 @@ export class Match {
     public seed = Date.now(),
   ) {
     this.rng = random(seed);
-    this.terrain = new Terrain(seed);
+    this.terrain = new Terrain(seed, settings.profile);
+    if (settings.profile !== "rolling")
+      this.terrain.prepareSpawns(
+        Array.from(
+          { length: settings.players },
+          (_, id) => 135 + (id * (WORLD.width - 270)) / (settings.players - 1),
+        ),
+      );
     this.tanks = Array.from({ length: settings.players }, (_, id) => {
       const x = 135 + (id * (WORLD.width - 270)) / (settings.players - 1);
       return {
@@ -152,7 +200,7 @@ export class Match {
         x,
         y: this.terrain.at(x),
         health: settings.health,
-        ai: settings.mode === "ai" && id > 0,
+        ai: settings.mode !== "local" && id > 0,
         ammo: createAmmo(),
         angle: id === 0 ? 55 : 125,
         power:
@@ -168,6 +216,7 @@ export class Match {
         longestChain: 0,
         lowHealth: false,
         fuel: WORLD.moveFuel,
+        fuelBonus: 0,
         moveX: 0,
         moveHeld: 0,
       };
@@ -226,6 +275,7 @@ export class Match {
       return false;
     const tank = this.current;
     this.attackBudget.clear();
+    this.closePasses.clear();
     this.resolvingShot = {
       owner: tank.id,
       turn: this.turn,
@@ -262,7 +312,13 @@ export class Match {
     return true;
   }
   tick(dt = WORLD.step): void {
-    if (this.phase !== "over") this.elapsed += dt;
+    if (this.phase === "over") return;
+    this.elapsed += dt;
+    tickSupplies(this, dt);
+    if (this.phase === "warning") {
+      tickEnvironment(this, dt);
+      return;
+    }
     if (this.phase === "settle") {
       this.settleTime += dt;
       if (this.settleTime > WORLD.settleDelay) this.advance();
@@ -278,6 +334,24 @@ export class Match {
       const from = { ...p };
       integrate(p, dt, this.wind, this.gravity);
       const w = weaponById(p.weapon);
+      for (const tank of this.tanks) {
+        if (
+          tank.id === p.owner ||
+          tank.health <= 0 ||
+          Math.abs(tank.x - p.x) > 40
+        )
+          continue;
+        const distance = Math.hypot(tank.x - p.x, tank.y - 7 - p.y);
+        if (
+          distance < 38 &&
+          distance < (this.closePasses.get(tank.id)?.distance ?? Infinity)
+        )
+          this.closePasses.set(tank.id, {
+            x: tank.x,
+            y: tank.y - 25,
+            distance,
+          });
+      }
       const hit = sweep(
         from,
         p,
@@ -341,6 +415,17 @@ export class Match {
           (sum, t) => sum + t.health - this.tanks[t.id].health,
           0,
         );
+        for (const [id, pass] of this.closePasses) {
+          const target = shot.targets.find((t) => t.id === id);
+          if (
+            target &&
+            this.tanks[id].health === target.health &&
+            !shot.impacts.some((i) => i.direct === id)
+          ) {
+            this.events.push({ type: "near-miss", x: pass.x, y: pass.y });
+            break;
+          }
+        }
         this.shotHistory.push(shot);
         if (this.shotHistory.length > 32) this.shotHistory.shift();
         this.resolvingShot = undefined;
@@ -357,32 +442,28 @@ export class Match {
       this.current.fuel <= 0
     )
       return false;
-    const before = this.current.x;
-    const candidate = this.current.x + direction * WORLD.moveSpeed * dt;
-    const safeX = clamp(candidate, 16, WORLD.width - 16);
-    const floor = Math.min(
-      this.terrain.at(safeX - 8),
-      this.terrain.at(safeX),
-      this.terrain.at(safeX + 8),
-    );
-    const slope = Math.abs(floor - this.current.y) / 18;
-    if (slope > WORLD.maxClimbSlope) return false;
-    const blocked = this.tanks.some(
-      (tank) =>
-        tank.id !== this.current.id &&
-        tank.health > 0 &&
-        Math.abs(safeX - tank.x) < 32 &&
-        Math.abs(floor - tank.y) < 24,
-    );
-    if (blocked) return false;
-    const traveled = Math.abs(safeX - before);
-    if (traveled <= 0) return false;
-    this.current.x = safeX;
-    this.current.y = floor;
-    this.current.fuel = Math.max(0, this.current.fuel - traveled);
-    this.current.moveX = safeX;
-    return true;
+    let remaining = dt,
+      moved = false;
+    for (let step = 0; step < 100 && remaining > 0; step++) {
+      const duration = Math.min(remaining, 1 / 60);
+      if (
+        !moveTank(
+          this.current,
+          direction,
+          duration,
+          this.terrain,
+          this.tanks,
+          this.settings,
+        )
+      )
+        break;
+      moved = true;
+      collectSupplies(this);
+      remaining -= duration;
+    }
+    return moved;
   }
+
   private applyDamageToTank(
     tank: Tank,
     amount: number,
@@ -391,8 +472,9 @@ export class Match {
   ): number {
     if (tank.health <= 0 || amount <= 0) return 0;
     if (!this.resolvingShot) {
+      const before = tank.health;
       this.hurt(tank, amount, p, fall);
-      return amount;
+      return before - tank.health;
     }
     const key = `${this.resolvingShot.owner}:${tank.id}:${this.resolvingShot.turn}`;
     const previous = this.attackBudget.get(key) ?? 0;
@@ -403,8 +485,9 @@ export class Match {
     const remaining = Math.max(0, effectiveLimit - previous);
     const actual = Math.min(amount, remaining);
     this.attackBudget.set(key, previous + actual);
+    const before = tank.health;
     this.hurt(tank, actual, p, fall);
-    return actual;
+    return before - tank.health;
   }
 
   private hurt(tank: Tank, amount: number, p: Projectile, fall = false): void {
@@ -476,8 +559,17 @@ export class Match {
               Math.max(12, tank.health * WORLD.maxAttackDamageRatio),
             )
           : raw;
-        this.applyDamageToTank(tank, limited, p);
+        const actual = this.applyDamageToTank(tank, limited, p);
+        if (tank.id === blast.direct && tank.id !== p.owner && actual > 0)
+          this.events.push({
+            type: "direct-hit",
+            id: tank.id,
+            x: tank.x,
+            y: tank.y - 12,
+            amount: actual,
+          });
       }
+      destroySupplies(this, blast.x, blast.y, blast.radius);
       this.terrain.crater(
         blast.x,
         blast.y,
@@ -537,8 +629,14 @@ export class Match {
     }
     for (const crate of this.crates)
       if (crate.active) crate.y = this.terrain.at(crate.x);
+    tickSupplies(this, 0);
   }
   private advance(): void {
+    const alive = this.tanks.filter((t) => t.health > 0).length;
+    if (!this.duelAnnounced && this.tanks.length > 2 && alive === 2) {
+      this.duelAnnounced = true;
+      this.events.push({ type: "duel" });
+    }
     if (this.tanks.filter((t) => t.health > 0).length <= 1) {
       this.winnerId = winner(this.tanks);
       this.phase = "over";
@@ -551,6 +649,9 @@ export class Match {
     resetFuel(current);
     this.rollWind();
     this.phase = "aim";
+    this.notice = "";
+    if ((this.turn - 1) % SUPPLIES.everyTurns === 0) spawnSupply(this);
+    scheduleEnvironment(this);
     this.events.push({ type: "turn" });
   }
 }
@@ -562,46 +663,4 @@ export interface AttackBudget {
   fall: number;
   chain: number;
   reasons: string[];
-}
-export function resetFuel(tank: Tank): void {
-  tank.fuel = WORLD.moveFuel;
-  tank.moveX = 0;
-  tank.moveHeld = 0;
-}
-export function sampleTerrainSlope(terrain: Terrain, x: number): number {
-  const left = terrain.at(x - 8);
-  const right = terrain.at(x + 8);
-  return Math.abs(right - left) / 16;
-}
-export function moveTank(
-  tank: Tank,
-  direction: -1 | 1,
-  dt: number,
-  terrain: Terrain,
-  tanks: readonly Tank[],
-  settings: Settings,
-): boolean {
-  if (!settings.movement || tank.health <= 0 || tank.fuel <= 0) return false;
-  const nextX = tank.x + direction * WORLD.moveSpeed * dt;
-  if (nextX < 16 || nextX > WORLD.width - 16) return false;
-  const floor = Math.min(
-    terrain.at(nextX - 8),
-    terrain.at(nextX),
-    terrain.at(nextX + 8),
-  );
-  const rise = floor - tank.y;
-  const slope = Math.abs(rise) / 18;
-  if (slope > WORLD.maxClimbSlope) return false;
-  const obstructed = tanks.some(
-    (other) =>
-      other.id !== tank.id &&
-      other.health > 0 &&
-      Math.abs(nextX - other.x) < 32 &&
-      Math.abs(floor - other.y) < 22,
-  );
-  if (obstructed) return false;
-  tank.x = nextX;
-  tank.y = floor;
-  tank.fuel = Math.max(0, tank.fuel - Math.abs(nextX - tank.x));
-  return true;
 }

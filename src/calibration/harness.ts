@@ -50,7 +50,12 @@ export function scenario(index: number, difficulty: Difficulty): Match {
 }
 export function resolveShot(game: Match): ShotOutcome {
   let ticks = 0;
-  while ((game.phase === "flight" || game.phase === "settle") && ticks++ < 2500)
+  while (
+    (game.phase === "flight" ||
+      game.phase === "settle" ||
+      game.phase === "warning") &&
+    ticks++ < 2500
+  )
     game.tick();
   if (ticks >= 2500 || !game.shotHistory.length)
     throw new Error("Shot did not resolve");

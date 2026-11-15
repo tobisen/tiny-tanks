@@ -35,7 +35,7 @@ export const INPUT_SPEED = { precise: 0.6, normal: 1, fast: 1.65 } as const;
 export type ThemeId = "green" | "desert" | "moon";
 export type Difficulty = "easy" | "normal" | "hard";
 export interface Settings {
-  mode: "ai" | "local";
+  mode: "ai" | "local" | "survival";
   players: number;
   difficulty: Difficulty;
   wind: boolean;
@@ -46,6 +46,9 @@ export interface Settings {
   reducedMotion: boolean;
   inputSpeed: keyof typeof INPUT_SPEED;
   movement: boolean;
+  profile: BattlefieldProfile;
+  supplies: boolean;
+  environmentalEvents: boolean;
 }
 export const DEFAULT_SETTINGS: Settings = {
   mode: "ai",
@@ -59,6 +62,9 @@ export const DEFAULT_SETTINGS: Settings = {
   reducedMotion: false,
   inputSpeed: "normal",
   movement: true,
+  profile: "rolling",
+  supplies: true,
+  environmentalEvents: false,
 };
 export function quickPlaySettings(
   rng: () => number = Math.random,
@@ -77,6 +83,9 @@ export function quickPlaySettings(
     reducedMotion: preferences.reducedMotion ?? false,
     inputSpeed: preferences.inputSpeed ?? "normal",
     theme: themes[Math.min(2, Math.floor(rng() * 3))],
+    profile: PROFILE_IDS[Math.min(3, Math.floor(rng() * 4))],
+    supplies: true,
+    environmentalEvents: true,
   };
 }
 export const COLORS = ["#d5f577", "#ff927a", "#8fc8ff", "#dfacfa"];
@@ -134,3 +143,48 @@ export function random(seed: number): () => number {
 }
 export const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
+
+export const BATTLEFIELDS = {
+  rolling: {
+    name: "Rolling Hills",
+    description: "Open lanes and gentle slopes.",
+  },
+  ridge: {
+    name: "Mountain Ridge",
+    description: "High ground and steep approaches.",
+  },
+  valley: {
+    name: "Crater Valley",
+    description: "Shallow craters and natural cover.",
+  },
+  highlands: {
+    name: "Broken Highlands",
+    description: "Narrow crests and long shots.",
+  },
+} as const;
+export type BattlefieldProfile = keyof typeof BATTLEFIELDS;
+export const PROFILE_IDS = Object.keys(BATTLEFIELDS) as BattlefieldProfile[];
+export const SUPPLIES = {
+  everyTurns: 4,
+  maxActive: 2,
+  maxTotal: 10,
+  maxRepairs: 3,
+  attempts: 32,
+  pickupRadius: 20,
+  spacing: 64,
+  deliverySeconds: 0.8,
+  repairFraction: 0.25,
+  fuel: 64,
+  maxBonusFuelPerTurn: 64,
+  ammo: 1,
+} as const;
+export const ENVIRONMENT = {
+  gustEvery: 5,
+  gustChance: 0.55,
+  gustMinimum: 18,
+  tremorEvery: 9,
+  tremorChance: 0.4,
+  warningSeconds: 0.7,
+  tremorRadius: 30,
+  tremorDepth: 9,
+} as const;
