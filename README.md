@@ -8,6 +8,8 @@ Small tanks. Big trouble. An original browser artillery game inspired by the gen
 
 ## Play
 
+**2.1 — Fair & Fun AI:** distinct skill profiles, imperfect wind and target estimates, varied weapon choices, and limited learning from real shot outcomes. Normal is calibrated for competitive, fallible play; Hard is stronger without perfect aim. Quick Play stays on Normal. See [measured before/after results and parameters](docs/ai-calibration.md). `npm run calibrate` reproduces the real-physics scenario suite; `npm run calibrate:baseline` runs the frozen 2.0 comparison.
+
 **Quick Play** starts one human against two Normal AI tanks, with a random theme, wind, and explosive crates. Custom solo and local games remain available. Aiming speed, the short trajectory preview, reduced motion, and sound are configurable. Holding touch controls and keyboard arrows uses the same smooth, accelerating input.
 
 Arcade Edition adds layered explosions with smoke, sparks, dirt and debris; weapon-specific recoil, speeds and synthesized sounds; deeper bunker craters; decorative rocks; restrained high-shot camera following; and AI that weighs damage, ammunition, self-hit risk, and crate opportunities. Crate chains resolve in stable order, with a strict eight-crate safety bound. Up to three crates spawn clear of tanks when enabled.
@@ -112,6 +114,7 @@ The service worker caches the app shell, icons, CSS, JavaScript, and bundled Pha
 - `src/game/match.ts`: tanks, projectile behaviors, damage, ammunition, settling, turns, and results; independent of Phaser.
 - `src/game/weapons.ts`: reusable weapon definitions and ammunition rules.
 - `src/game/ai.ts`: candidate trajectories evaluated with the same physics and terrain collisions as player shots.
+- `src/game/ai-config.ts`, `src/game/ai-memory.ts`: centralized skill profiles and bounded, match-scoped shot learning. `src/calibration/` and `scripts/calibrate-ai.ts` measure actual gameplay outcomes without duplicating projectile physics.
 - `src/game/scene.ts`: Phaser rendering, interpolation, visual effects, keyboard aiming, and AI timing.
 - `src/game/crates.ts`, `src/game/records.ts`: safe crate placement, local statistics, and achievement rules.
 - `src/game/effects.ts`: bounded procedural flashes, smoke, sparks, dirt, and debris.

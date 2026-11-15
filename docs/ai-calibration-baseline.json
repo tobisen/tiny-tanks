@@ -1,0 +1,119 @@
+{
+  "version": "2.0 baseline (69cd138)",
+  "samplesPerDifficulty": 432,
+  "scenarios": {
+    "easy": {
+      "samples": 432,
+      "directHits": 60,
+      "directRate": 0.1388888888888889,
+      "nearMissRate": 0.20833333333333334,
+      "splashOnlyRate": 0.21296296296296297,
+      "averageMiss": 166.40335501337418,
+      "averageDamage": 12.037037037037036,
+      "shotsNeedingCorrection": 320,
+      "memoryCorrections": 0,
+      "weaponCounts": {
+        "standard": 432,
+        "heavy": 0,
+        "triple": 0,
+        "cluster": 0,
+        "bunker": 0,
+        "mega": 0
+      },
+      "groups": {
+        "standardOnly": {
+          "shots": 216,
+          "direct": 28,
+          "damage": 2642
+        },
+        "arsenal": {
+          "shots": 216,
+          "direct": 32,
+          "damage": 2558
+        }
+      },
+      "meanDecisionMs": 6.877963275462953,
+      "p95DecisionMs": 11.324166999999989
+    },
+    "normal": {
+      "samples": 432,
+      "directHits": 186,
+      "directRate": 0.4305555555555556,
+      "nearMissRate": 0.34953703703703703,
+      "splashOnlyRate": 0.3541666666666667,
+      "averageMiss": 39.35019496834535,
+      "averageDamage": 39.6412037037037,
+      "shotsNeedingCorrection": 125,
+      "memoryCorrections": 0,
+      "weaponCounts": {
+        "standard": 303,
+        "heavy": 87,
+        "triple": 19,
+        "cluster": 4,
+        "bunker": 9,
+        "mega": 10
+      },
+      "groups": {
+        "standardOnly": {
+          "shots": 216,
+          "direct": 85,
+          "damage": 6613
+        },
+        "arsenal": {
+          "shots": 216,
+          "direct": 101,
+          "damage": 10512
+        }
+      },
+      "meanDecisionMs": 14.573865307870394,
+      "p95DecisionMs": 27.59204200000022
+    },
+    "hard": {
+      "samples": 432,
+      "directHits": 246,
+      "directRate": 0.5694444444444444,
+      "nearMissRate": 0.41435185185185186,
+      "splashOnlyRate": 0.4097222222222222,
+      "averageMiss": 10.871619995609779,
+      "averageDamage": 53.5462962962963,
+      "shotsNeedingCorrection": 18,
+      "memoryCorrections": 0,
+      "weaponCounts": {
+        "standard": 311,
+        "heavy": 100,
+        "triple": 13,
+        "cluster": 0,
+        "bunker": 3,
+        "mega": 5
+      },
+      "groups": {
+        "standardOnly": {
+          "shots": 216,
+          "direct": 122,
+          "damage": 9827
+        },
+        "arsenal": {
+          "shots": 216,
+          "direct": 124,
+          "damage": 13305
+        }
+      },
+      "meanDecisionMs": 29.72175846759257,
+      "p95DecisionMs": 54.34300000000076
+    }
+  },
+  "tournament": {
+    "games": 90,
+    "wins": {
+      "easy": 2,
+      "normal": 41,
+      "hard": 47
+    },
+    "draws": 0,
+    "unresolved": 0,
+    "averageTurns": 4.7444444444444445,
+    "memoryCorrections": 0,
+    "decisions": 427
+  },
+  "learning": null
+}

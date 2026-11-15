@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function ready(page: Page) {
+async function ready(page: Page, seed = 20261115) {
+  await page.clock.setFixedTime(new Date(seed));
   await page.goto("./");
   await expect(page.locator("canvas")).toBeVisible();
   await expect(page.locator("#players .player-card")).toHaveCount(3);
@@ -284,6 +285,13 @@ test("Quick Play resets battle rules in one click, preserves comfort settings, a
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  await page.addInitScript(() => {
+    let seed = 593;
+    Math.random = () => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
+      return (seed >>> 0) / 4294967296;
+    };
+  });
   await ready(page);
   await page.locator("#settings").click();
   await page.locator("[name=players]").selectOption("4");
@@ -333,13 +341,64 @@ test("Quick Play resets battle rules in one click, preserves comfort settings, a
   await page.getByRole("button", { name: "Save settings" }).click();
   await page.locator("#resume").click();
   await page.locator("#fire").click();
-  await expect
-    .poll(
-      async () =>
-        (await page.locator("#fire").isEnabled()) ||
-        (await page.locator("#rematch").isVisible()),
-      { timeout: 30000 },
-    )
-    .toBe(true);
+  await expect(page.locator("#fire")).toBeDisabled();
+  await expect(page.locator("#fire small")).toHaveText("SHOT IN FLIGHT");
   expect(errors).toEqual([]);
+});
+
+test("Normal AI naturally misses, then damages and eliminates an opponent; replay starts with fresh memory", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  // Fixed real-game scenario selected from the simulation harness; no hit/miss forcing.
+  await ready(page, 145);
+  await settings(page, "2", "normal", "75", "green");
+  await page.locator("#settings").click();
+  await page.locator("[name=crates]").uncheck();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await page.locator("#play-ai").click();
+  const fireWeakShot = async () => {
+    await expect(page.locator("#fire")).toBeEnabled();
+    await setRange(page, "angle", 45);
+    await setRange(page, "power", 20);
+    await page.locator("#fire").click();
+  };
+  await fireWeakShot();
+  await expect(page.locator("#turn-label")).toHaveText("TURN 02", {
+    timeout: 20000,
+  });
+  await expect(page.locator("#fire small")).toHaveText("SHOT IN FLIGHT", {
+    timeout: 15000,
+  });
+  const committed = {
+    angle: +(await page.locator("#angle").inputValue()),
+    power: +(await page.locator("#power").inputValue()),
+    weapon: await page.locator(".weapon.selected").getAttribute("data-weapon"),
+  };
+  expect(committed.angle).toBeGreaterThanOrEqual(0);
+  expect(committed.angle).toBeLessThanOrEqual(180);
+  expect(committed.power).toBeGreaterThanOrEqual(0);
+  expect(committed.power).toBeLessThanOrEqual(100);
+  await expect(page.locator("#turn-label")).toHaveText("TURN 03", {
+    timeout: 20000,
+  });
+  await expect(page.locator(".health-number").first()).toHaveText("75HP");
+  await fireWeakShot();
+  await expect(page.locator("#rematch")).toBeVisible({ timeout: 25000 });
+  await expect(page.locator(".health-number").first()).toHaveText("0HP");
+  await expect(page.locator("dialog h2")).toContainText("Ember");
+  await page.locator("#same-map").click();
+  await expect(page.locator("#turn-label")).toHaveText("TURN 01");
+  await fireWeakShot();
+  await expect(page.locator("#turn-label")).toHaveText("TURN 02", {
+    timeout: 20000,
+  });
+  await expect(page.locator("#fire small")).toHaveText("SHOT IN FLIGHT", {
+    timeout: 15000,
+  });
+  expect({
+    angle: +(await page.locator("#angle").inputValue()),
+    power: +(await page.locator("#power").inputValue()),
+    weapon: await page.locator(".weapon.selected").getAttribute("data-weapon"),
+  }).toEqual(committed);
 });
