@@ -92,12 +92,19 @@ export function blastDamage(
   base: number,
   direct = false,
 ): number {
-  if (direct) return Math.round(base * WORLD.directMultiplier);
-  return Math.round(
-    base *
-      Math.pow(
-        Math.max(0, 1 - distance / (radius + WORLD.damagePadding)),
-        WORLD.damageExponent,
-      ),
-  );
+  if (direct) {
+    const cap = base * WORLD.directMultiplier;
+    return Math.round(Math.min(cap, base + 18));
+  }
+  const falloff = Math.max(0, 1 - distance / (radius + WORLD.damagePadding));
+  return Math.round(base * Math.pow(falloff, WORLD.damageExponent));
+}
+export function attackDamageBudget(
+  targetHealth: number,
+  baseDamage: number,
+  directHit = false,
+): number {
+  const cap = Math.max(18, targetHealth * WORLD.maxAttackDamageRatio);
+  const directBonus = directHit ? Math.min(18, targetHealth * 0.08) : 0;
+  return Math.min(baseDamage, cap + directBonus);
 }

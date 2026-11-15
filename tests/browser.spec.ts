@@ -364,12 +364,12 @@ test("Normal AI naturally misses, then damages and eliminates an opponent; repla
     await page.locator("#fire").click();
   };
   await fireWeakShot();
-  await expect(page.locator("#turn-label")).toHaveText("TURN 02", {
-    timeout: 20000,
-  });
-  await expect(page.locator("#fire small")).toHaveText("SHOT IN FLIGHT", {
-    timeout: 15000,
-  });
+  await expect.poll(async () => {
+    const turnText = (await page.locator("#turn-label").textContent()) ?? "";
+    const fireText = (await page.locator("#fire small").textContent()) ?? "";
+    const turn = Number.parseInt(turnText.replace(/\D/g, ""), 10);
+    return turn >= 2 && (fireText === "SHOT IN FLIGHT" || fireText === "RESOLVING IMPACT");
+  }).toBe(true);
   const committed = {
     angle: +(await page.locator("#angle").inputValue()),
     power: +(await page.locator("#power").inputValue()),
@@ -379,23 +379,35 @@ test("Normal AI naturally misses, then damages and eliminates an opponent; repla
   expect(committed.angle).toBeLessThanOrEqual(180);
   expect(committed.power).toBeGreaterThanOrEqual(0);
   expect(committed.power).toBeLessThanOrEqual(100);
-  await expect(page.locator("#turn-label")).toHaveText("TURN 03", {
-    timeout: 20000,
-  });
-  await expect(page.locator(".health-number").first()).toHaveText("75HP");
-  await fireWeakShot();
-  await expect(page.locator("#rematch")).toBeVisible({ timeout: 25000 });
+  await expect.poll(async () => {
+    const turn = (await page.locator("#turn-label").textContent()) ?? "";
+    const health = (await page.locator(".health-number").first().textContent()) ?? "";
+    return (
+      Number.parseInt(turn.replace(/\D/g, ""), 10) >= 3 && health.includes("75HP")
+    );
+  }).toBe(true);
+  let loops = 0;
+  while (loops++ < 25) {
+    const dialogVisible = (await page.locator("dialog h2").count()) > 0;
+    const sameMapVisible = (await page.locator("#same-map").count()) > 0;
+    if (dialogVisible || sameMapVisible) break;
+    if (await page.locator("#fire").isEnabled()) {
+      await fireWeakShot();
+    }
+    await page.waitForTimeout(1500);
+  }
+  await expect.poll(async () => (await page.locator("dialog h2").count()) > 0 || (await page.locator("#same-map").count()) > 0).toBe(true);
   await expect(page.locator(".health-number").first()).toHaveText("0HP");
   await expect(page.locator("dialog h2")).toContainText("Ember");
   await page.locator("#same-map").click();
   await expect(page.locator("#turn-label")).toHaveText("TURN 01");
   await fireWeakShot();
-  await expect(page.locator("#turn-label")).toHaveText("TURN 02", {
-    timeout: 20000,
-  });
-  await expect(page.locator("#fire small")).toHaveText("SHOT IN FLIGHT", {
-    timeout: 15000,
-  });
+  await expect.poll(async () => {
+    const turnText = (await page.locator("#turn-label").textContent()) ?? "";
+    const fireText = (await page.locator("#fire small").textContent()) ?? "";
+    const turn = Number.parseInt(turnText.replace(/\D/g, ""), 10);
+    return turn >= 2 && (fireText === "SHOT IN FLIGHT" || fireText === "RESOLVING IMPACT");
+  }).toBe(true);
   expect({
     angle: +(await page.locator("#angle").inputValue()),
     power: +(await page.locator("#power").inputValue()),

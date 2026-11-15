@@ -37,6 +37,9 @@ export interface Tank {
   biggestHit: number;
   longestChain: number;
   lowHealth: boolean;
+  fuel: number;
+  moveX: number;
+  moveHeld: number;
 }
 export interface Projectile extends Body {
   id: number;
@@ -129,9 +132,11 @@ export class Match {
   readonly shotHistory: ShotOutcome[] = [];
   private resolvingShot?: ShotOutcome;
   private hitShots = new Set<string>();
+  private attackBudget = new Map<string, number>();
   private rng: () => number;
   private serial = 0;
   private settleTime = 0;
+
   constructor(
     public settings: Settings,
     public seed = Date.now(),
@@ -162,6 +167,9 @@ export class Match {
         biggestHit: 0,
         longestChain: 0,
         lowHealth: false,
+        fuel: WORLD.moveFuel,
+        moveX: 0,
+        moveHeld: 0,
       };
     });
     this.crates = settings.crates
@@ -217,6 +225,7 @@ export class Match {
     )
       return false;
     const tank = this.current;
+    this.attackBudget.clear();
     this.resolvingShot = {
       owner: tank.id,
       turn: this.turn,
@@ -340,6 +349,64 @@ export class Match {
       this.settleTime = 0;
     }
   }
+  move(direction: -1 | 1, dt = WORLD.step): boolean {
+    if (
+      this.phase !== "aim" ||
+      this.current.health <= 0 ||
+      !this.settings.movement ||
+      this.current.fuel <= 0
+    )
+      return false;
+    const before = this.current.x;
+    const candidate = this.current.x + direction * WORLD.moveSpeed * dt;
+    const safeX = clamp(candidate, 16, WORLD.width - 16);
+    const floor = Math.min(
+      this.terrain.at(safeX - 8),
+      this.terrain.at(safeX),
+      this.terrain.at(safeX + 8),
+    );
+    const slope = Math.abs(floor - this.current.y) / 18;
+    if (slope > WORLD.maxClimbSlope) return false;
+    const blocked = this.tanks.some(
+      (tank) =>
+        tank.id !== this.current.id &&
+        tank.health > 0 &&
+        Math.abs(safeX - tank.x) < 32 &&
+        Math.abs(floor - tank.y) < 24,
+    );
+    if (blocked) return false;
+    const traveled = Math.abs(safeX - before);
+    if (traveled <= 0) return false;
+    this.current.x = safeX;
+    this.current.y = floor;
+    this.current.fuel = Math.max(0, this.current.fuel - traveled);
+    this.current.moveX = safeX;
+    return true;
+  }
+  private applyDamageToTank(
+    tank: Tank,
+    amount: number,
+    p: Projectile,
+    fall = false,
+  ): number {
+    if (tank.health <= 0 || amount <= 0) return 0;
+    if (!this.resolvingShot) {
+      this.hurt(tank, amount, p, fall);
+      return amount;
+    }
+    const key = `${this.resolvingShot.owner}:${tank.id}:${this.resolvingShot.turn}`;
+    const previous = this.attackBudget.get(key) ?? 0;
+    const effectiveLimit = Math.max(
+      12,
+      tank.health * WORLD.maxAttackDamageRatio,
+    );
+    const remaining = Math.max(0, effectiveLimit - previous);
+    const actual = Math.min(amount, remaining);
+    this.attackBudget.set(key, previous + actual);
+    this.hurt(tank, actual, p, fall);
+    return actual;
+  }
+
   private hurt(tank: Tank, amount: number, p: Projectile, fall = false): void {
     if (tank.health <= 0 || amount <= 0) return;
     const actual = Math.min(tank.health, amount);
@@ -385,7 +452,6 @@ export class Match {
       },
     ];
     let chained = 0;
-    // FIFO, stable crate order, and marking before enqueue make chains deterministic and finite.
     for (let i = 0; i < queue.length; i++) {
       const blast = queue[i];
       this.events.push({
@@ -397,17 +463,21 @@ export class Match {
         crate: blast.crate,
         underground: blast.underground,
       });
-      for (const tank of this.tanks)
-        this.hurt(
-          tank,
-          blastDamage(
-            Math.hypot(tank.x - blast.x, tank.y - 7 - blast.y),
-            blast.radius,
-            blast.damage,
-            tank.id === blast.direct,
-          ),
-          p,
+      for (const tank of this.tanks) {
+        const raw = blastDamage(
+          Math.hypot(tank.x - blast.x, tank.y - 7 - blast.y),
+          blast.radius,
+          blast.damage,
+          tank.id === blast.direct,
         );
+        const limited = this.resolvingShot
+          ? Math.min(
+              raw,
+              Math.max(12, tank.health * WORLD.maxAttackDamageRatio),
+            )
+          : raw;
+        this.applyDamageToTank(tank, limited, p);
+      }
       this.terrain.crater(
         blast.x,
         blast.y,
@@ -456,12 +526,14 @@ export class Match {
       );
       const fall = Math.max(0, floor - tank.y);
       tank.y = floor;
-      this.hurt(
-        tank,
-        Math.round(Math.max(0, fall - WORLD.fallThreshold) * WORLD.fallDamage),
-        p,
-        true,
+      const fallDamage = Math.round(
+        Math.max(0, fall - WORLD.fallThreshold) * WORLD.fallDamage,
       );
+      if (this.resolvingShot) {
+        this.applyDamageToTank(tank, fallDamage, p, true);
+      } else {
+        this.hurt(tank, fallDamage, p, true);
+      }
     }
     for (const crate of this.crates)
       if (crate.active) crate.y = this.terrain.at(crate.x);
@@ -475,8 +547,61 @@ export class Match {
     }
     this.active = nextLiving(this.tanks, this.active);
     this.turn++;
+    const current = this.current;
+    resetFuel(current);
     this.rollWind();
     this.phase = "aim";
     this.events.push({ type: "turn" });
   }
+}
+export interface AttackBudget {
+  limit: number;
+  applied: number;
+  direct: number;
+  splash: number;
+  fall: number;
+  chain: number;
+  reasons: string[];
+}
+export function resetFuel(tank: Tank): void {
+  tank.fuel = WORLD.moveFuel;
+  tank.moveX = 0;
+  tank.moveHeld = 0;
+}
+export function sampleTerrainSlope(terrain: Terrain, x: number): number {
+  const left = terrain.at(x - 8);
+  const right = terrain.at(x + 8);
+  return Math.abs(right - left) / 16;
+}
+export function moveTank(
+  tank: Tank,
+  direction: -1 | 1,
+  dt: number,
+  terrain: Terrain,
+  tanks: readonly Tank[],
+  settings: Settings,
+): boolean {
+  if (!settings.movement || tank.health <= 0 || tank.fuel <= 0) return false;
+  const nextX = tank.x + direction * WORLD.moveSpeed * dt;
+  if (nextX < 16 || nextX > WORLD.width - 16) return false;
+  const floor = Math.min(
+    terrain.at(nextX - 8),
+    terrain.at(nextX),
+    terrain.at(nextX + 8),
+  );
+  const rise = floor - tank.y;
+  const slope = Math.abs(rise) / 18;
+  if (slope > WORLD.maxClimbSlope) return false;
+  const obstructed = tanks.some(
+    (other) =>
+      other.id !== tank.id &&
+      other.health > 0 &&
+      Math.abs(nextX - other.x) < 32 &&
+      Math.abs(floor - other.y) < 22,
+  );
+  if (obstructed) return false;
+  tank.x = nextX;
+  tank.y = floor;
+  tank.fuel = Math.max(0, tank.fuel - Math.abs(nextX - tank.x));
+  return true;
 }

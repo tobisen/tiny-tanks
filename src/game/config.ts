@@ -18,6 +18,10 @@ export const WORLD = {
   spreadAngle: 5.5,
   startingPower: 52,
   moonStartingPower: 40,
+  moveSpeed: 135,
+  maxClimbSlope: 0.86,
+  maxAttackDamageRatio: 0.38,
+  moveFuel: 128,
 } as const;
 export const CRATES = {
   radius: 96,
@@ -41,6 +45,7 @@ export interface Settings {
   preview: boolean;
   reducedMotion: boolean;
   inputSpeed: keyof typeof INPUT_SPEED;
+  movement: boolean;
 }
 export const DEFAULT_SETTINGS: Settings = {
   mode: "ai",
@@ -53,6 +58,7 @@ export const DEFAULT_SETTINGS: Settings = {
   preview: true,
   reducedMotion: false,
   inputSpeed: "normal",
+  movement: true,
 };
 export function quickPlaySettings(
   rng: () => number = Math.random,
@@ -61,6 +67,12 @@ export function quickPlaySettings(
   const themes: ThemeId[] = ["green", "desert", "moon"];
   return {
     ...DEFAULT_SETTINGS,
+    mode: "ai",
+    players: 3,
+    difficulty: "normal",
+    health: 100,
+    wind: true,
+    crates: true,
     preview: preferences.preview ?? true,
     reducedMotion: preferences.reducedMotion ?? false,
     inputSpeed: preferences.inputSpeed ?? "normal",

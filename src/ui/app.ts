@@ -3,6 +3,7 @@ import {
   INPUT_SPEED,
   quickPlaySettings,
   THEMES,
+  WORLD,
   type Settings,
 } from "../game/config";
 import type { BattleScene } from "../game/scene";
@@ -99,6 +100,7 @@ export class AppUI {
           health: [75, 100, 150].includes(saved.health ?? 0)
             ? saved.health!
             : 100,
+          movement: typeof saved.movement === "boolean" ? saved.movement : true,
         };
       }
     } catch {
@@ -118,11 +120,18 @@ export class AppUI {
             <div id="controls" class="controls"><div class="weapon-section"><div class="control-heading"><span class="micro-label">01 / LOADOUT</span><span id="ammo-label">UNLIMITED AMMO</span></div><div class="weapons" role="group" aria-label="Weapon selection">${WEAPONS.map((w, i) => `<button class="weapon${i === 0 ? " selected" : ""}" data-weapon="${w.id}" title="${w.name} — ${w.description}" aria-label="${w.name}" aria-pressed="${i === 0}"><span class="weapon-key">${i + 1}</span>${icon(w.id === "standard" ? "shell" : w.id)}<span class="weapon-name">${w.short}</span><span class="weapon-ammo">${Number.isFinite(w.ammo) ? w.ammo : "∞"}</span></button>`).join("")}</div><p id="weapon-info" class="weapon-info"></p></div>
             <div class="aim-control"><div class="control-heading"><label class="micro-label" for="angle">02 / ANGLE</label><output id="angle-output" for="angle">55<span>°</span></output></div><div class="range-line"><button class="adjust" data-adjust="angle:-1" aria-label="Decrease angle">−</button><input id="angle" type="range" min="0" max="180" step="0.1" value="55" aria-label="Firing angle"><button class="adjust" data-adjust="angle:1" aria-label="Increase angle">+</button></div><div class="range-labels"><span>RIGHT 0°</span><span>LEFT 180°</span></div></div>
             <div class="aim-control"><div class="control-heading"><label class="micro-label" for="power">03 / POWER</label><output id="power-output" for="power">64<span>%</span></output></div><div class="range-line"><button class="adjust" data-adjust="power:-1" aria-label="Decrease power">−</button><input id="power" type="range" min="0" max="100" step="0.1" value="64" aria-label="Firing power"><button class="adjust" data-adjust="power:1" aria-label="Increase power">+</button></div><div class="range-labels"><span>A LITTLE</span><span>A LOT</span></div></div>
+            <div class="move-controls" aria-label="Movement controls">
+              <div class="control-heading"><span class="micro-label">04 / MOVE</span><span id="fuel-label">FUEL 100%</span></div>
+              <div class="move-buttons">
+                <button class="move-button" data-move="-1" aria-label="Move left">◀ MOVE LEFT</button>
+                <button class="move-button" data-move="1" aria-label="Move right">MOVE RIGHT ▶</button>
+              </div>
+            </div>
             <button class="fire-button" id="fire" disabled>${icon("target")}<span>FIRE<small>SPACE TO SEND IT</small></span>${icon("arrow")}</button></div>
           </section>
-          <div class="under-field"><span id="status" role="status" aria-live="polite"><span class="live-dot"></span> Six weapons. Destructible terrain. Zero hard feelings.</span><span class="keyboard-hints"><kbd>←</kbd><kbd>→</kbd> angle <kbd>↑</kbd><kbd>↓</kbd> power <kbd>1–6</kbd> weapons</span></div>
+          <div class="under-field"><span id="status" role="status" aria-live="polite"><span class="live-dot"></span> Six weapons. Destructible terrain. Zero hard feelings.</span><span class="keyboard-hints"><kbd>←</kbd><kbd>→</kbd> angle <kbd>↑</kbd><kbd>↓</kbd> power <kbd>A</kbd><kbd>D</kbd> move <kbd>1–6</kbd> weapons</span></div>
         </main>
-        <footer><span>BUILT FOR GOOD OLD-FASHIONED RIVALRY.</span><div><button id="install" hidden>INSTALL GAME ↗</button><span>NO ACCOUNTS. NO ADS. JUST ARTILLERY.</span><span class="version">V.2.1</span></div></footer>
+        <footer><span>BUILT FOR GOOD OLD-FASHIONED RIVALRY.</span><div><button id="install" hidden>INSTALL GAME ↗</button><span>NO ACCOUNTS. NO ADS. JUST ARTILLERY.</span><span class="version">V.2.2</span></div></footer>
       </div><div id="achievement-toast" class="achievement-toast" role="status" aria-live="polite" hidden></div>`;
     this.dialog.className = "modal";
     document.body.append(this.dialog);
@@ -249,6 +258,26 @@ export class AppUI {
             tank.power + (axis === "power" ? +direction : 0),
           );
         });
+      });
+    document
+      .querySelectorAll<HTMLButtonElement>("[data-move]")
+      .forEach((button) => {
+        const direction = Number(button.dataset.move!) as -1 | 1;
+        const activate = (event: PointerEvent) => {
+          event.preventDefault();
+          button.setPointerCapture(event.pointerId);
+          this.scene?.move(direction);
+          this.scene?.soundFX.unlock();
+        };
+        const stop = (event: PointerEvent) => {
+          this.scene?.clearInput();
+          if (button.hasPointerCapture(event.pointerId))
+            button.releasePointerCapture(event.pointerId);
+        };
+        button.addEventListener("pointerdown", activate);
+        button.addEventListener("pointerup", stop);
+        button.addEventListener("pointercancel", stop);
+        button.addEventListener("lostpointercapture", stop);
       });
     window.addEventListener("keydown", (event) => {
       if (event.code === "Escape") {
@@ -379,6 +408,7 @@ export class AppUI {
       <label class="toggle-label">Explosive crates<input name="crates" type="checkbox" ${s.crates ? "checked" : ""}></label>
       <label class="toggle-label">Aim preview<input name="preview" type="checkbox" ${s.preview ? "checked" : ""}></label>
       <label class="toggle-label">Reduced motion<input name="reducedMotion" type="checkbox" ${s.reducedMotion ? "checked" : ""}></label>
+      <label class="toggle-label">Tank movement<input name="movement" type="checkbox" ${s.movement ? "checked" : ""}></label>
       <label>Aiming speed<select name="inputSpeed">${Object.keys(INPUT_SPEED)
         .map(
           (id) =>
@@ -417,6 +447,7 @@ export class AppUI {
         crates: data.has("crates"),
         preview: data.has("preview"),
         reducedMotion: data.has("reducedMotion"),
+        movement: data.has("movement"),
         inputSpeed: data.get("inputSpeed") as Settings["inputSpeed"],
       };
       this.save();
@@ -425,6 +456,7 @@ export class AppUI {
           Object.assign(this.scene.match.settings, {
             preview: this.settings.preview,
             reducedMotion: this.settings.reducedMotion,
+            movement: this.settings.movement,
             inputSpeed: this.settings.inputSpeed,
           });
         this.pause();
@@ -645,6 +677,22 @@ export class AppUI {
       "aria-label",
       scene.soundFX.enabled ? "Mute sound" : "Enable sound",
     );
+    const fuel = tank.fuel / WORLD.moveFuel;
+    this.byId("fuel-label").textContent = `FUEL ${Math.round(fuel * 100)}%`;
+    const moveButtons =
+      document.querySelectorAll<HTMLButtonElement>(".move-button");
+    moveButtons.forEach((button) => {
+      const enabled =
+        inGame && match.phase === "aim" && !tank.ai && match.settings.movement;
+      button.disabled = !enabled || tank.fuel <= 0;
+      button.classList.toggle("disabled", !enabled || tank.fuel <= 0);
+    });
+    document
+      .querySelector(".move-controls")
+      ?.classList.toggle(
+        "inactive",
+        !inGame || !match.settings.movement || tank.ai || match.phase !== "aim",
+      );
     if (inGame && match.phase === "over" && !this.dialog.open) this.gameOver();
   }
 }

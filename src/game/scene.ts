@@ -57,6 +57,8 @@ export class BattleScene extends Phaser.Scene {
   private ambient = 0;
   private toast?: Phaser.GameObjects.Text;
   private held = new Set<string>();
+  private moveHeld = new Set<string>();
+  private touchMove = new Map<number, -1 | 1>();
   constructor() {
     super("battle");
   }
@@ -75,10 +77,18 @@ export class BattleScene extends Phaser.Scene {
       )
         return;
       this.held.add(event.code);
+      if (event.code === "KeyA" || event.code === "KeyD") {
+        this.moveHeld.add(event.code);
+      }
+      if (event.code === "KeyA" && !event.repeat) this.move(-1);
+      if (event.code === "KeyD" && !event.repeat) this.move(1);
     });
-    window.addEventListener("keyup", (event: KeyboardEvent) =>
-      this.held.delete(event.code),
-    );
+    window.addEventListener("keyup", (event: KeyboardEvent) => {
+      this.held.delete(event.code);
+      if (event.code === "KeyA" || event.code === "KeyD") {
+        this.moveHeld.delete(event.code);
+      }
+    });
     this.game.events.on(Phaser.Core.Events.BLUR, () => this.clearInput());
     this.startMatch({ ...DEFAULT_SETTINGS }, true);
     this.onReady();
@@ -159,6 +169,8 @@ export class BattleScene extends Phaser.Scene {
     this.held.clear();
     this.touchHolds.clear();
     this.holdTime = 0;
+    this.moveHeld.clear();
+    this.touchMove.clear();
   }
   holdAim(pointer: number, axis: "angle" | "power", direction: number): void {
     if (!this.canAim) return;
@@ -172,6 +184,18 @@ export class BattleScene extends Phaser.Scene {
   }
   releaseAim(pointer: number): void {
     this.touchHolds.delete(pointer);
+  }
+  move(direction: -1 | 1): void {
+    if (
+      this.demo ||
+      this.paused ||
+      this.match.phase !== "aim" ||
+      this.match.current.ai ||
+      !this.match.settings.movement
+    )
+      return;
+    this.match.move(direction, 1 / 60);
+    this.onChange();
   }
   get canAim(): boolean {
     return (
@@ -689,6 +713,21 @@ export class BattleScene extends Phaser.Scene {
               clamp(vertical, -1, 1) * delta * 30 * speed,
           );
         } else this.holdTime = 0;
+      }
+      const moveDirection =
+        Number(this.held.has("KeyD")) - Number(this.held.has("KeyA"));
+      const touchDirection =
+        Number(this.touchMove.get(0) === 1) -
+        Number(this.touchMove.get(0) === -1);
+      const direction =
+        this.match.phase === "aim" &&
+        this.match.settings.movement &&
+        !this.match.current.ai
+          ? clamp(moveDirection + touchDirection, -1, 1)
+          : 0;
+      if (direction !== 0 && this.match.phase === "aim") {
+        this.match.move(direction as -1 | 1, delta * 4);
+        this.onChange();
       }
       if (this.match.phase === "aim" && this.match.current.ai) {
         this.aiClock += delta;
