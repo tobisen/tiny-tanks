@@ -312,3 +312,84 @@ describe("representative real-physics calibration guard", () => {
     );
   }, 20000);
 });
+
+describe("bounded Normal AI integration scenarios", () => {
+  const seededMatch = () => new Match(
+    {
+      ...DEFAULT_SETTINGS,
+      players: 2,
+      difficulty: "normal",
+      health: 75,
+      wind: false,
+      crates: false,
+      theme: "green",
+    },
+    145,
+  );
+
+  function humanShot(game: Match, angle: number) {
+    expect(game.active).toBe(0);
+    game.current.angle = angle;
+    game.current.power = 20;
+    expect(game.fire()).toBe(true);
+    resolveShot(game);
+    return game.phase;
+  }
+
+  it("naturally misses and then directly damages an opponent in two exchanges", () => {
+    const game = seededMatch();
+    for (const [turn, damage] of [[2, 0], [4, 28.5]]) {
+      humanShot(game, 45);
+      expect(game.current.ai).toBe(true);
+      const shot = chooseShot(game);
+      expect(fireAIShot(game, shot)).toBe(true);
+      const outcome = resolveShot(game);
+      expect(outcome).toMatchObject({
+        owner: 1,
+        turn,
+        damage,
+        angle: shot.angle,
+        power: shot.power,
+        weapon: shot.weapon,
+      });
+      if (damage === 0) {
+        expect(outcome.impacts.every((impact) => impact.direct === undefined))
+          .toBe(true);
+        expect(game.tanks.map((tank) => tank.health)).toEqual([75, 75]);
+      } else {
+        expect(outcome.impacts.some((impact) => impact.direct === 0)).toBe(true);
+        expect(game.tanks.map((tank) => tank.health)).toEqual([46.5, 75]);
+      }
+      expect(game.phase).toBe("aim");
+      expect(game.turn).toBe(turn + 1);
+    }
+    expect(game.shotHistory).toHaveLength(4);
+  });
+
+  it("bounds the browser victory fixture with real self hits and resets same-seed shot memory", () => {
+    const game = seededMatch();
+    let firstAI: ReturnType<typeof chooseShot> | undefined;
+    let shots = 0;
+    while (game.phase !== "over" && shots < 5) {
+      const health = game.current.health;
+      const phase = humanShot(game, 90);
+      shots++;
+      expect(game.tanks[0].health).toBeLessThan(health);
+      if (phase === "over") break;
+      const shot = chooseShot(game);
+      firstAI ??= shot;
+      execute(game, shot);
+    }
+    expect(game.phase).toBe("over");
+    expect(game.winnerId).toBe(1);
+    expect(game.tanks[0].health).toBe(0);
+    expect(shots).toBeLessThanOrEqual(5);
+    expect(game.shotHistory.length).toBeGreaterThan(1);
+
+    const replay = new Match({ ...game.settings }, game.seed);
+    expect(replay.shotHistory).toHaveLength(0);
+    humanShot(replay, 90);
+    expect(replay.shotHistory).toHaveLength(1);
+    expect(chooseShot(replay)).toEqual(firstAI);
+  });
+});

@@ -254,11 +254,15 @@ describe("AI and complete matches", () => {
       expect(g.current.ammo[shot.weapon]).toBeGreaterThan(0);
     },
   );
-  it.each(Object.keys(THEMES) as (keyof typeof THEMES)[])(
-    "plays a full %s match using real physics",
-    (theme) => {
+  it.each(
+    (Object.keys(THEMES) as (keyof typeof THEMES)[]).flatMap((theme) =>
+      (["normal", "hard"] as const).map((difficulty) => ({ theme, difficulty })),
+    ),
+  )(
+    "$difficulty AI damages and eliminates opponents in a full $theme match using real physics",
+    ({ theme, difficulty }) => {
       const g = new Match(
-        { ...DEFAULT_SETTINGS, players: 3, difficulty: "hard", theme },
+        { ...DEFAULT_SETTINGS, players: 3, difficulty, theme },
         284,
       );
       let shots = 0;
@@ -267,6 +271,7 @@ describe("AI and complete matches", () => {
         resolve(g);
       }
       expect(g.phase).toBe("over");
+      expect(g.tanks.reduce((kills, tank) => kills + tank.kills, 0)).toBeGreaterThan(0);
       expect(g.tanks.filter((t) => t.health > 0).length).toBeLessThanOrEqual(1);
       expect(shots).toBeLessThan(90);
     },

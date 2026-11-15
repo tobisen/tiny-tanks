@@ -12,6 +12,7 @@ async function settings(
   difficulty = "hard",
   health = "75",
   theme = "green",
+  crates = true,
 ) {
   await page.locator("#settings").click();
   await page.locator("[name=players]").selectOption(players);
@@ -19,6 +20,7 @@ async function settings(
   await page.locator("[name=health]").selectOption(health);
   await page.locator("[name=theme]").selectOption(theme);
   await page.locator("[name=wind]").uncheck();
+  await page.locator("[name=crates]").setChecked(crates);
   await page.getByRole("button", { name: "Save settings" }).click();
 }
 async function setRange(page: Page, id: string, value: number) {
@@ -28,11 +30,81 @@ async function setRange(page: Page, id: string, value: number) {
   }, value);
 }
 
+// A shot has a bounded physics lifetime. Wait for UI states, counting completed
+// turns rather than polling passes; never infer completion from elapsed time.
+async function fireShot(page: Page, angle: number, power = 20) {
+  await expect(page.locator("#fire")).toBeEnabled();
+  await setRange(page, "angle", angle);
+  await setRange(page, "power", power);
+  await page.locator("#fire").click();
+  await expect(page.locator("#fire")).toBeDisabled();
+}
+async function humanTurn(page: Page, turn: number) {
+  await expect(page.locator("#turn-label")).toHaveText(
+    `TURN ${String(turn).padStart(2, "0")}`,
+    { timeout: 20000 },
+  );
+  await expect(page.locator("#fire")).toBeEnabled();
+}
+async function committedAIShot(page: Page, turn: number) {
+  await expect(page.locator("#turn-label")).toHaveText(
+    `TURN ${String(turn).padStart(2, "0")}`,
+    { timeout: 20000 },
+  );
+  // Capture the launch and HUD atomically, while this exact AI turn is in
+  // flight/settle. Reading controls after returning to the human loses the shot.
+  let committed: {
+    angle: number;
+    power: number;
+    weapon: string | null;
+  } | null = null;
+  await expect.poll(async () => {
+    committed = await page.evaluate((expectedTurn) => {
+      if (
+        document.querySelector("#turn-label")?.textContent !== expectedTurn ||
+        !["SHOT IN FLIGHT", "RESOLVING IMPACT"].includes(
+          document.querySelector("#fire small")?.textContent ?? "",
+        )
+      )
+        return null;
+      return {
+        angle: +document.querySelector<HTMLInputElement>("#angle")!.value,
+        power: +document.querySelector<HTMLInputElement>("#power")!.value,
+        weapon: document.querySelector(".weapon.selected")!
+          .getAttribute("data-weapon"),
+      };
+    }, `TURN ${String(turn).padStart(2, "0")}`);
+    return committed;
+  }).not.toBeNull();
+  expect(committed!.angle).toBeGreaterThanOrEqual(0);
+  expect(committed!.angle).toBeLessThanOrEqual(180);
+  expect(committed!.power).toBeGreaterThanOrEqual(0);
+  expect(committed!.power).toBeLessThanOrEqual(100);
+  expect(["standard", "heavy", "triple", "cluster", "bunker", "mega"])
+    .toContain(committed!.weapon);
+  return committed!;
+}
+async function battlefieldFits(page: Page) {
+  // Phaser fits its canvas asynchronously after a layout/orientation change.
+  // Poll the actual bounds and keep both containment assertions.
+  await expect(async () => {
+    const canvas = await page.locator("canvas").boundingBox();
+    const stage = await page.locator(".stage").boundingBox();
+    expect(canvas).not.toBeNull();
+    expect(stage).not.toBeNull();
+    expect(canvas!.x).toBeGreaterThanOrEqual(stage!.x - 1);
+    expect(canvas!.x + canvas!.width).toBeLessThanOrEqual(
+      stage!.x + stage!.width + 1,
+    );
+  }).toPass({ timeout: 5000 });
+}
+
 test("production menu, keyboard, six loadouts, pause, settings, local turns and resize", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  await page.clock.install();
   await ready(page);
   await page.screenshot({
     path: "test-results/menu-desktop.png",
@@ -54,8 +126,12 @@ test("production menu, keyboard, six loadouts, pause, settings, local turns and 
   }
   await page.keyboard.press("1");
   await page.keyboard.down("ArrowLeft");
-  await page.waitForTimeout(160);
-  await page.keyboard.up("ArrowLeft");
+  try {
+    await expect.poll(async () => +(await page.locator("#angle").inputValue()))
+      .toBeGreaterThan(55);
+  } finally {
+    await page.keyboard.up("ArrowLeft");
+  }
   expect(+(await page.locator("#angle").inputValue())).toBeGreaterThan(55);
   await page.screenshot({
     path: "test-results/game-desktop.png",
@@ -68,7 +144,8 @@ test("production menu, keyboard, six loadouts, pause, settings, local turns and 
   await page.locator("#pause").click();
   await expect(page.getByText("Hold your fire.")).toBeVisible();
   const turn = await page.locator("#turn-label").textContent();
-  await page.waitForTimeout(900);
+  // Advance a defined pause window without sleeping in wall-clock time.
+  await page.clock.runFor(900);
   expect(await page.locator("#turn-label").textContent()).toBe(turn);
   await page.locator("#resume").click();
   await expect(page.locator("#turn-label")).toHaveText("TURN 02", {
@@ -77,7 +154,8 @@ test("production menu, keyboard, six loadouts, pause, settings, local turns and 
   await expect(page.locator("#match-title")).toContainText("Ember");
   await expect(page.locator("#status")).toContainText("Ember");
   await expect(page.locator("#fire")).toBeEnabled();
-  await page.waitForTimeout(1200);
+  // Local turns must stay put even as simulation time advances.
+  await page.clock.runFor(1200);
   await expect(page.locator("#turn-label")).toHaveText("TURN 02");
   await page.screenshot({
     path: "test-results/game-desktop-crater.png",
@@ -93,56 +171,71 @@ test("production menu, keyboard, six loadouts, pause, settings, local turns and 
   expect(errors).toEqual([]);
 });
 
-test("a complete human vs AI match resolves damage, winner and immediate rematch", async ({
-  page,
-}) => {
-  await ready(page);
-  await settings(page);
-  await page.locator("#play-ai").click();
-  let shots = 0;
-  while (!(await page.locator("#rematch").isVisible()) && shots++ < 8) {
-    await expect(page.locator("#fire")).toBeEnabled({ timeout: 20000 });
-    await setRange(page, "angle", 90);
-    await setRange(page, "power", 20);
-    await page.locator("#fire").click();
-    await expect
-      .poll(
-        async () =>
-          (await page.locator("#rematch").isVisible()) ||
-          (await page.locator("#fire").isEnabled()),
-        { timeout: 25000 },
-      )
-      .toBe(true);
-  }
-  await expect(page.locator("#rematch")).toBeVisible();
-  expect(shots).toBeLessThan(8);
-  await expect(page.locator(".eliminated")).toHaveCount(1);
-  await expect(page.locator(".results")).toContainText("DAMAGE");
-  await expect(page.locator(".results")).toContainText("KILLS");
-  await expect(page.locator(".results")).toContainText("HIT %");
-  const record = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("tiny-tanks-record-v2")!),
-  );
-  expect(record.matches).toBe(1);
-  expect(record.wins + record.losses + record.draws).toBe(1);
-  await page.screenshot({
-    path: "test-results/match-results.png",
-    fullPage: true,
+for (const rematch of ["rematch", "same-map"] as const) {
+  test(`bounded human vs AI match resolves damage, winner and ${rematch}`, async ({ page }) => {
+    await ready(page, 145);
+    await settings(page, "2", "normal", "75", "green", false);
+    await page.locator("#play-ai").click();
+    // Vertical shells land on Clover. This guarantees a defeat within five
+    // human shots under the 2.2 damage cap, regardless of whether the AI hits.
+    // No health/physics overrides or dependency on statistical AI accuracy.
+    await fireShot(page, 90);
+    const committed = await committedAIShot(page, 2);
+    await humanTurn(page, 3);
+    let shots = 1;
+    while (shots < 5 && !(await page.locator("#rematch").isVisible())) {
+      const turn = shots * 2 + 1;
+      await humanTurn(page, turn);
+      await fireShot(page, 90);
+      shots++;
+      await expect.poll(
+        () => page.evaluate((nextTurn) =>
+          !!document.querySelector("#rematch") || (
+            document.querySelector("#turn-label")?.textContent === nextTurn &&
+            !document.querySelector<HTMLButtonElement>("#fire")!.disabled
+          ), `TURN ${String(turn + 2).padStart(2, "0")}`),
+        { timeout: 20000 },
+      ).toBe(true);
+    }
+    expect(shots).toBeLessThanOrEqual(5);
+    await expect(page.locator("#rematch")).toBeVisible();
+    await expect(page.locator("#same-map")).toBeVisible();
+    await expect(page.locator("dialog h2")).toHaveText("Ember takes the hill.");
+    await expect(page.locator(".health-number").first()).toHaveText("0HP");
+    await expect(page.locator(".eliminated")).toHaveCount(1);
+    await expect(page.locator(".results")).toContainText("DAMAGE");
+    await expect(page.locator(".results")).toContainText("KILLS");
+    await expect(page.locator(".results")).toContainText("HIT %");
+    const record = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("tiny-tanks-record-v2")!),
+    );
+    expect(record).toMatchObject({ matches: 1, wins: 0, losses: 1, draws: 0 });
+    await page.screenshot({
+      path: `test-results/match-results-${rematch}.png`,
+      fullPage: true,
+    });
+    // A frozen Date.now() would otherwise make both buttons replay seed 145,
+    // masking a broken same-map handler. Only that button must retain the seed.
+    await page.clock.setFixedTime(new Date(146));
+    await page.locator(`#${rematch}`).click();
+    await humanTurn(page, 1);
+    await expect(page.locator(".health-number"))
+      .toHaveText(["75HP", "75HP"]);
+    await expect(page.locator(".eliminated")).toHaveCount(0);
+    await fireShot(page, 90);
+    const nextCommitted = await committedAIShot(page, 2);
+    if (rematch === "same-map") expect(nextCommitted).toEqual(committed);
+    else expect(nextCommitted).not.toEqual(committed);
+    await humanTurn(page, 3);
+    await page.locator("#records").click();
+    await expect(page.getByText("A little bragging rights.")).toBeVisible();
+    await expect(page.locator(".achievement-list .achievement")).toHaveCount(5);
+    await page.getByRole("button", { name: "Close dialog" }).click();
+    expect(await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("tiny-tanks-record-v2")!).matches,
+    )).toBe(1);
   });
-  await page.locator("#rematch").click();
-  await expect(page.locator("#turn-label")).toHaveText("TURN 01");
-  await expect(page.locator("#fire")).toBeEnabled();
-  await expect(page.locator(".eliminated")).toHaveCount(0);
-  await page.locator("#records").click();
-  await expect(page.getByText("A little bragging rights.")).toBeVisible();
-  await expect(page.locator(".achievement-list .achievement")).toHaveCount(5);
-  await page.getByRole("button", { name: "Close dialog" }).click();
-  expect(
-    await page.evaluate(
-      () => JSON.parse(localStorage.getItem("tiny-tanks-record-v2")!).matches,
-    ),
-  ).toBe(1);
-});
+}
 
 test("mobile touch aim and fire retain the entire battlefield through orientation changes", async ({
   browser,
@@ -166,12 +259,7 @@ test("mobile touch aim and fire retain the entire battlefield through orientatio
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  const canvas = await page.locator("canvas").boundingBox(),
-    stage = await page.locator(".stage").boundingBox();
-  expect(canvas!.x).toBeGreaterThanOrEqual(stage!.x - 1);
-  expect(canvas!.x + canvas!.width).toBeLessThanOrEqual(
-    stage!.x + stage!.width + 1,
-  );
+  await battlefieldFits(page);
   const previous = +(await page.locator("#angle").inputValue());
   await page.getByRole("button", { name: "Increase angle" }).tap();
   expect(+(await page.locator("#angle").inputValue())).toBeGreaterThan(
@@ -187,6 +275,7 @@ test("mobile touch aim and fire retain the entire battlefield through orientatio
     fullPage: true,
   });
   await page.setViewportSize({ width: 844, height: 390 });
+  await battlefieldFits(page);
   await expect(page.locator("#turn-label")).toHaveText("TURN 01");
   await page.locator("#fire").tap();
   await expect(page.locator("#turn-label")).toHaveText("TURN 02", {
@@ -329,8 +418,12 @@ test("Quick Play resets battle rules in one click, preserves comfort settings, a
   const plus = page.getByRole("button", { name: "Increase angle" });
   await plus.hover();
   await page.mouse.down();
-  await page.waitForTimeout(250);
-  await page.mouse.up();
+  try {
+    await expect.poll(async () => +(await page.locator("#angle").inputValue()))
+      .toBeGreaterThan(before + 1);
+  } finally {
+    await page.mouse.up();
+  }
   expect(+(await page.locator("#angle").inputValue())).toBeGreaterThan(
     before + 1,
   );
@@ -346,71 +439,19 @@ test("Quick Play resets battle rules in one click, preserves comfort settings, a
   expect(errors).toEqual([]);
 });
 
-test("Normal AI naturally misses, then damages and eliminates an opponent; replay starts with fresh memory", async ({
-  page,
-}) => {
-  test.setTimeout(90000);
-  // Fixed real-game scenario selected from the simulation harness; no hit/miss forcing.
+test("Normal AI naturally misses then damages an opponent in two exchanges", async ({ page }) => {
+  // Accuracy distributions belong to the real-physics unit calibration guard.
+  // This integration scenario checks exactly two unmodified AI launches.
   await ready(page, 145);
-  await settings(page, "2", "normal", "75", "green");
-  await page.locator("#settings").click();
-  await page.locator("[name=crates]").uncheck();
-  await page.getByRole("button", { name: "Save settings" }).click();
+  await settings(page, "2", "normal", "75", "green", false);
   await page.locator("#play-ai").click();
-  const fireWeakShot = async () => {
-    await expect(page.locator("#fire")).toBeEnabled();
-    await setRange(page, "angle", 45);
-    await setRange(page, "power", 20);
-    await page.locator("#fire").click();
-  };
-  await fireWeakShot();
-  await expect.poll(async () => {
-    const turnText = (await page.locator("#turn-label").textContent()) ?? "";
-    const fireText = (await page.locator("#fire small").textContent()) ?? "";
-    const turn = Number.parseInt(turnText.replace(/\D/g, ""), 10);
-    return turn >= 2 && (fireText === "SHOT IN FLIGHT" || fireText === "RESOLVING IMPACT");
-  }).toBe(true);
-  const committed = {
-    angle: +(await page.locator("#angle").inputValue()),
-    power: +(await page.locator("#power").inputValue()),
-    weapon: await page.locator(".weapon.selected").getAttribute("data-weapon"),
-  };
-  expect(committed.angle).toBeGreaterThanOrEqual(0);
-  expect(committed.angle).toBeLessThanOrEqual(180);
-  expect(committed.power).toBeGreaterThanOrEqual(0);
-  expect(committed.power).toBeLessThanOrEqual(100);
-  await expect.poll(async () => {
-    const turn = (await page.locator("#turn-label").textContent()) ?? "";
-    const health = (await page.locator(".health-number").first().textContent()) ?? "";
-    return (
-      Number.parseInt(turn.replace(/\D/g, ""), 10) >= 3 && health.includes("75HP")
-    );
-  }).toBe(true);
-  let loops = 0;
-  while (loops++ < 25) {
-    const dialogVisible = (await page.locator("dialog h2").count()) > 0;
-    const sameMapVisible = (await page.locator("#same-map").count()) > 0;
-    if (dialogVisible || sameMapVisible) break;
-    if (await page.locator("#fire").isEnabled()) {
-      await fireWeakShot();
-    }
-    await page.waitForTimeout(1500);
+  for (const [aiTurn, humanHealth] of [[2, "75HP"], [4, "46.5HP"]] as const) {
+    await fireShot(page, 45);
+    await committedAIShot(page, aiTurn);
+    await humanTurn(page, aiTurn + 1);
+    await expect(page.locator(".health-number"))
+      .toHaveText([humanHealth, "75HP"]);
+    await expect(page.locator(".eliminated")).toHaveCount(0);
   }
-  await expect.poll(async () => (await page.locator("dialog h2").count()) > 0 || (await page.locator("#same-map").count()) > 0).toBe(true);
-  await expect(page.locator(".health-number").first()).toHaveText("0HP");
-  await expect(page.locator("dialog h2")).toContainText("Ember");
-  await page.locator("#same-map").click();
-  await expect(page.locator("#turn-label")).toHaveText("TURN 01");
-  await fireWeakShot();
-  await expect.poll(async () => {
-    const turnText = (await page.locator("#turn-label").textContent()) ?? "";
-    const fireText = (await page.locator("#fire small").textContent()) ?? "";
-    const turn = Number.parseInt(turnText.replace(/\D/g, ""), 10);
-    return turn >= 2 && (fireText === "SHOT IN FLIGHT" || fireText === "RESOLVING IMPACT");
-  }).toBe(true);
-  expect({
-    angle: +(await page.locator("#angle").inputValue()),
-    power: +(await page.locator("#power").inputValue()),
-    weapon: await page.locator(".weapon.selected").getAttribute("data-weapon"),
-  }).toEqual(committed);
+  await expect(page.locator("#rematch")).toHaveCount(0);
 });

@@ -45,6 +45,8 @@ npm run build
 npm run preview
 ```
 
+Run `npm run test:browser` after building to verify the production UI and offline behavior. AI accuracy is guarded by deterministic real-physics unit calibration; natural misses, match completion, and rematches have separate bounded scenarios. See [2.2 release verification](docs/release-2.2-validation.md) for the investigation and checks.
+
 ## GitHub Pages
 
 The deployment flow remains the same as prior versions; the build is still generated for the repository base path and the bundled Vite PWA remains offline-compatible.
