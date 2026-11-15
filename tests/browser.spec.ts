@@ -13,6 +13,7 @@ async function settings(
   health = "75",
   theme = "green",
   crates = true,
+  reducedMotion = false,
 ) {
   await page.locator("#settings").click();
   await page.locator("[name=players]").selectOption(players);
@@ -21,6 +22,7 @@ async function settings(
   await page.locator("[name=theme]").selectOption(theme);
   await page.locator("[name=wind]").uncheck();
   await page.locator("[name=crates]").setChecked(crates);
+  await page.locator("[name=reducedMotion]").setChecked(reducedMotion);
   await page.getByRole("button", { name: "Save settings" }).click();
 }
 async function setRange(page: Page, id: string, value: number) {
@@ -174,19 +176,21 @@ test("production menu, keyboard, six loadouts, pause, settings, local turns and 
 for (const rematch of ["rematch", "same-map"] as const) {
   test(`bounded human vs AI match resolves damage, winner and ${rematch}`, async ({ page }) => {
     await ready(page, 145);
-    await settings(page, "2", "normal", "75", "green", false);
+    await settings(page, "2", "normal", "75", "green", false, true);
     await page.locator("#play-ai").click();
     // Vertical shells land on Clover. This guarantees a defeat within five
     // human shots under the 2.2 damage cap, regardless of whether the AI hits.
-    // No health/physics overrides or dependency on statistical AI accuracy.
-    await fireShot(page, 90);
+    // Zero power still launches a real shell at the minimum speed, keeping
+    // these self hits short. Reduced motion avoids testing turret animation
+    // again here; the separate Normal integration scenario retains animation.
+    await fireShot(page, 90, 0);
     const committed = await committedAIShot(page, 2);
     await humanTurn(page, 3);
     let shots = 1;
     while (shots < 5 && !(await page.locator("#rematch").isVisible())) {
       const turn = shots * 2 + 1;
       await humanTurn(page, turn);
-      await fireShot(page, 90);
+      await fireShot(page, 90, 0);
       shots++;
       await expect.poll(
         () => page.evaluate((nextTurn) =>
@@ -222,11 +226,12 @@ for (const rematch of ["rematch", "same-map"] as const) {
     await expect(page.locator(".health-number"))
       .toHaveText(["75HP", "75HP"]);
     await expect(page.locator(".eliminated")).toHaveCount(0);
-    await fireShot(page, 90);
+    await fireShot(page, 90, 0);
     const nextCommitted = await committedAIShot(page, 2);
     if (rematch === "same-map") expect(nextCommitted).toEqual(committed);
     else expect(nextCommitted).not.toEqual(committed);
-    await humanTurn(page, 3);
+    // Replay coverage ends at the committed launch. Full AI shot resolution
+    // is covered by the separate two-exchange integration scenario.
     await page.locator("#records").click();
     await expect(page.getByText("A little bragging rights.")).toBeVisible();
     await expect(page.locator(".achievement-list .achievement")).toHaveCount(5);

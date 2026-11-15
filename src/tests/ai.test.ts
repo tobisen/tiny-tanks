@@ -327,10 +327,10 @@ describe("bounded Normal AI integration scenarios", () => {
     145,
   );
 
-  function humanShot(game: Match, angle: number) {
+  function humanShot(game: Match, angle: number, power = 20) {
     expect(game.active).toBe(0);
     game.current.angle = angle;
-    game.current.power = 20;
+    game.current.power = power;
     expect(game.fire()).toBe(true);
     resolveShot(game);
     return game.phase;
@@ -368,11 +368,12 @@ describe("bounded Normal AI integration scenarios", () => {
 
   it("bounds the browser victory fixture with real self hits and resets same-seed shot memory", () => {
     const game = seededMatch();
+    game.settings.reducedMotion = true;
     let firstAI: ReturnType<typeof chooseShot> | undefined;
     let shots = 0;
     while (game.phase !== "over" && shots < 5) {
       const health = game.current.health;
-      const phase = humanShot(game, 90);
+      const phase = humanShot(game, 90, 0);
       shots++;
       expect(game.tanks[0].health).toBeLessThan(health);
       if (phase === "over") break;
@@ -388,7 +389,7 @@ describe("bounded Normal AI integration scenarios", () => {
 
     const replay = new Match({ ...game.settings }, game.seed);
     expect(replay.shotHistory).toHaveLength(0);
-    humanShot(replay, 90);
+    humanShot(replay, 90, 0);
     expect(replay.shotHistory).toHaveLength(1);
     expect(chooseShot(replay)).toEqual(firstAI);
   });

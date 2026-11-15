@@ -13,7 +13,7 @@ The failed Actions run additionally put the human flight and AI preparation unde
 - **Accuracy:** the existing deterministic unit calibration executes 216 scenarios per difficulty through real physics. Its distinct-difficulty, Normal direct-rate (10–34%), Hard fallibility, and damage-ordering assertions remain unchanged.
 - **Natural misses and damage:** unit and browser scenarios execute exactly two ordinary Normal AI turns on seed 145. They require unchanged opponent health after the miss and 46.5 HP after the next shot. The unit scenario also requires an actual direct collision with the opponent; neither planner output nor projectile outcomes are forced.
 - **AI elimination and completion:** Normal and Hard each play complete three-tank unit matches on Green Hills, Desert, and Moon, requiring real opponent kills, a completed match, and at most one survivor within the existing 90-shot bound.
-- **Results and rematches:** a separate browser fixture uses vertical human self-hits. These guarantee a result within five human shots without relying on AI accuracy. It verifies the eliminated tank, named winner, results columns, exactly one persisted loss, both rematch buttons, restored health, a different first AI launch on a new map, and identical first-shot commitment on the same map even after advancing the frozen date. A unit scenario validates the fixture's bound and empty shot memory after reconstructing the same seed.
+- **Results and rematches:** a separate browser fixture uses vertical human self-hits. These use zero power (the ordinary minimum launch speed), guaranteeing a result within five human shots without relying on AI accuracy. The existing reduced-motion preference skips redundant turret animation here; the separate natural-miss scenario retains normal animation. It verifies the eliminated tank, named winner, results columns, exactly one persisted loss, both rematch buttons, restored health, a different first AI launch on a new map, and identical first-shot commitment on the same map even after advancing the frozen date. A unit scenario validates the fixture's bound and empty shot memory after reconstructing the same seed.
 - **Synchronization:** browser helpers wait for exact turn labels, enabled controls, committed AI launch states, results, or canvas containment. Launch data is captured atomically with its turn and flight state. Aim holds wait for angle changes. Pause and local-turn time invariants advance the browser clock. There are no `waitForTimeout` calls or increased test timeouts.
 
 The game engine, AI configuration, physics, damage model, and balance are unchanged. Package metadata now agrees with the existing 2.2 UI version.
@@ -33,15 +33,17 @@ done
 
 Each browser run starts a fresh preview server and uses isolated browser contexts, one worker, and no retries. GitHub Actions independently repeats unit tests, typecheck, production build, and the complete browser suite before deploying Pages.
 
-Verified locally on November 15, 2026:
+The first pushed revision passed three consecutive local suites but failed CI because the two completion tests consumed the 60-second test budget after already reaching results and restarting. Failure traces placed the rematch case at the record-button click after the replay exchange and the same-map case at replay turn 2. The fixture now uses minimum-power self hits and the existing reduced-motion preference. Replay coverage ends at the committed AI launch; full AI shot resolution remains covered separately. No timeout was increased and no winner, health, results, record, or commitment assertion was removed. Final verification results are recorded below after rerunning all release checks.
+
+Verified locally on November 15, 2026, after the CI fixture correction:
 
 | Check | Result |
 | --- | --- |
 | Unit tests (including the unchanged 216-scenario-per-skill accuracy guard) | 70/70 passed |
 | Typecheck | Passed |
 | Production build at `/tiny-tanks/` | Passed, including PWA generation |
-| Final complete Playwright run 1 | 8/8 passed, 2.1 minutes |
-| Final complete Playwright run 2 | 8/8 passed, 2.1 minutes |
-| Final complete Playwright run 3 | 8/8 passed, 2.1 minutes |
+| Final complete Playwright run 1 | 8/8 passed, 1.8 minutes |
+| Final complete Playwright run 2 | 8/8 passed, 1.8 minutes |
+| Final complete Playwright run 3 | 8/8 passed, 1.9 minutes |
 
-The three final browser runs were consecutive on unchanged test code, with no retries. They include the advanced-date rematch distinction. Two earlier base-path runs and an initial root-path run also passed before that assertion was strengthened. The browser test file additionally passed an explicit strict TypeScript check (the repository's standard typecheck covers `src`, scripts, and build configuration).
+The three final browser runs were consecutive on unchanged test code, with no retries. They include the advanced-date rematch distinction and the shorter real-physics completion fixture. The browser test file additionally passed an explicit strict TypeScript check (the repository's standard typecheck covers `src`, scripts, and build configuration).
