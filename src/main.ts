@@ -30,3 +30,9 @@ registerSW({
     });
   },
 });
+
+if (import.meta.env.DEV && import.meta.env.VITE_E2E_HARNESS === "1") {
+  void import("./testing").then(({ installTestHarness }) =>
+    installTestHarness(ui, scene),
+  );
+}

@@ -1,0 +1,70 @@
+{
+  "version": "2.3.0",
+  "methodology": "Paired Normal-AI simulated matches, 4 profiles × 3 themes × 2 seeds; 3 tanks; 120-shot bound. Actual shared movement, supply, event, and projectile paths. Not a human-play or device-performance benchmark.",
+  "baseline": {
+    "games": 24,
+    "unresolved": 0,
+    "meanTurns": 42.333333333333336,
+    "pickups": 0,
+    "repairs": 0,
+    "supplies": 0,
+    "gusts": 0,
+    "tremors": 0,
+    "oneShots": 0,
+    "profiles": {
+      "rolling": {
+        "games": 6,
+        "meanTurns": 37,
+        "unresolved": 0
+      },
+      "ridge": {
+        "games": 6,
+        "meanTurns": 42.166666666666664,
+        "unresolved": 0
+      },
+      "valley": {
+        "games": 6,
+        "meanTurns": 39.833333333333336,
+        "unresolved": 0
+      },
+      "highlands": {
+        "games": 6,
+        "meanTurns": 50.333333333333336,
+        "unresolved": 0
+      }
+    }
+  },
+  "mayhem": {
+    "games": 24,
+    "unresolved": 0,
+    "meanTurns": 42.791666666666664,
+    "pickups": 28,
+    "repairs": 6,
+    "supplies": 117,
+    "gusts": 91,
+    "tremors": 33,
+    "oneShots": 0,
+    "profiles": {
+      "rolling": {
+        "games": 6,
+        "meanTurns": 35.333333333333336,
+        "unresolved": 0
+      },
+      "ridge": {
+        "games": 6,
+        "meanTurns": 52.5,
+        "unresolved": 0
+      },
+      "valley": {
+        "games": 6,
+        "meanTurns": 40.666666666666664,
+        "unresolved": 0
+      },
+      "highlands": {
+        "games": 6,
+        "meanTurns": 42.666666666666664,
+        "unresolved": 0
+      }
+    }
+  }
+}

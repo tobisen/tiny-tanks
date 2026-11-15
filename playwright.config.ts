@@ -22,9 +22,17 @@ export default defineConfig({
   },
   webServer: process.env.TEST_URL
     ? undefined
-    : {
-        command: "npm run preview -- --port 4173",
-        url: previewURL,
-        reuseExistingServer: !process.env.CI,
-      },
+    : [
+        {
+          command: "npm run preview -- --port 4173",
+          url: previewURL,
+          reuseExistingServer: !process.env.CI,
+        },
+        {
+          command: "npm run dev -- --port 4175 --strictPort",
+          url: `http://127.0.0.1:4175${base}`,
+          reuseExistingServer: !process.env.CI,
+          env: { VITE_E2E_HARNESS: "1" },
+        },
+      ],
 });

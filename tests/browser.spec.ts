@@ -21,6 +21,9 @@ async function settings(
   await page.locator("[name=health]").selectOption(health);
   await page.locator("[name=theme]").selectOption(theme);
   await page.locator("[name=wind]").uncheck();
+  await page.locator("[name=supplies]").uncheck();
+  await page.locator("[name=environmentalEvents]").uncheck();
+  await page.locator("[name=profile]").selectOption("rolling");
   await page.locator("[name=crates]").setChecked(crates);
   await page.locator("[name=reducedMotion]").setChecked(reducedMotion);
   await page.getByRole("button", { name: "Save settings" }).click();
@@ -60,30 +63,43 @@ async function committedAIShot(page: Page, turn: number) {
     power: number;
     weapon: string | null;
   } | null = null;
-  await expect.poll(async () => {
-    committed = await page.evaluate((expectedTurn) => {
-      if (
-        document.querySelector("#turn-label")?.textContent !== expectedTurn ||
-        !["SHOT IN FLIGHT", "RESOLVING IMPACT"].includes(
-          document.querySelector("#fire small")?.textContent ?? "",
-        )
-      )
-        return null;
-      return {
-        angle: +document.querySelector<HTMLInputElement>("#angle")!.value,
-        power: +document.querySelector<HTMLInputElement>("#power")!.value,
-        weapon: document.querySelector(".weapon.selected")!
-          .getAttribute("data-weapon"),
-      };
-    }, `TURN ${String(turn).padStart(2, "0")}`);
-    return committed;
-  }).not.toBeNull();
+  await expect
+    .poll(async () => {
+      committed = await page.evaluate(
+        (expectedTurn) => {
+          if (
+            document.querySelector("#turn-label")?.textContent !==
+              expectedTurn ||
+            !["SHOT IN FLIGHT", "RESOLVING IMPACT"].includes(
+              document.querySelector("#fire small")?.textContent ?? "",
+            )
+          )
+            return null;
+          return {
+            angle: +document.querySelector<HTMLInputElement>("#angle")!.value,
+            power: +document.querySelector<HTMLInputElement>("#power")!.value,
+            weapon: document
+              .querySelector(".weapon.selected")!
+              .getAttribute("data-weapon"),
+          };
+        },
+        `TURN ${String(turn).padStart(2, "0")}`,
+      );
+      return committed;
+    })
+    .not.toBeNull();
   expect(committed!.angle).toBeGreaterThanOrEqual(0);
   expect(committed!.angle).toBeLessThanOrEqual(180);
   expect(committed!.power).toBeGreaterThanOrEqual(0);
   expect(committed!.power).toBeLessThanOrEqual(100);
-  expect(["standard", "heavy", "triple", "cluster", "bunker", "mega"])
-    .toContain(committed!.weapon);
+  expect([
+    "standard",
+    "heavy",
+    "triple",
+    "cluster",
+    "bunker",
+    "mega",
+  ]).toContain(committed!.weapon);
   return committed!;
 }
 async function battlefieldFits(page: Page) {
@@ -112,6 +128,10 @@ test("production menu, keyboard, six loadouts, pause, settings, local turns and 
     path: "test-results/menu-desktop.png",
     fullPage: true,
   });
+  await expect(page.locator("#menu")).toContainText("V.2.3.0");
+  expect(await page.evaluate(() => "__TINY_TANKS_TEST__" in window)).toBe(
+    false,
+  );
   await page.locator("#menu-help").click();
   await expect(page.getByText("Aim high. Hit hard.")).toBeVisible();
   await page.locator("#got-it").click();
@@ -129,7 +149,8 @@ test("production menu, keyboard, six loadouts, pause, settings, local turns and 
   await page.keyboard.press("1");
   await page.keyboard.down("ArrowLeft");
   try {
-    await expect.poll(async () => +(await page.locator("#angle").inputValue()))
+    await expect
+      .poll(async () => +(await page.locator("#angle").inputValue()))
       .toBeGreaterThan(55);
   } finally {
     await page.keyboard.up("ArrowLeft");
@@ -174,7 +195,9 @@ test("production menu, keyboard, six loadouts, pause, settings, local turns and 
 });
 
 for (const rematch of ["rematch", "same-map"] as const) {
-  test(`bounded human vs AI match resolves damage, winner and ${rematch}`, async ({ page }) => {
+  test(`bounded human vs AI match resolves damage, winner and ${rematch}`, async ({
+    page,
+  }) => {
     await ready(page, 145);
     await settings(page, "2", "normal", "75", "green", false, true);
     await page.locator("#play-ai").click();
@@ -192,14 +215,21 @@ for (const rematch of ["rematch", "same-map"] as const) {
       await humanTurn(page, turn);
       await fireShot(page, 90, 0);
       shots++;
-      await expect.poll(
-        () => page.evaluate((nextTurn) =>
-          !!document.querySelector("#rematch") || (
-            document.querySelector("#turn-label")?.textContent === nextTurn &&
-            !document.querySelector<HTMLButtonElement>("#fire")!.disabled
-          ), `TURN ${String(turn + 2).padStart(2, "0")}`),
-        { timeout: 20000 },
-      ).toBe(true);
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              (nextTurn) =>
+                !!document.querySelector("#rematch") ||
+                (document.querySelector("#turn-label")?.textContent ===
+                  nextTurn &&
+                  !document.querySelector<HTMLButtonElement>("#fire")!
+                    .disabled),
+              `TURN ${String(turn + 2).padStart(2, "0")}`,
+            ),
+          { timeout: 20000 },
+        )
+        .toBe(true);
     }
     expect(shots).toBeLessThanOrEqual(5);
     await expect(page.locator("#rematch")).toBeVisible();
@@ -223,8 +253,7 @@ for (const rematch of ["rematch", "same-map"] as const) {
     await page.clock.setFixedTime(new Date(146));
     await page.locator(`#${rematch}`).click();
     await humanTurn(page, 1);
-    await expect(page.locator(".health-number"))
-      .toHaveText(["75HP", "75HP"]);
+    await expect(page.locator(".health-number")).toHaveText(["75HP", "75HP"]);
     await expect(page.locator(".eliminated")).toHaveCount(0);
     await fireShot(page, 90, 0);
     const nextCommitted = await committedAIShot(page, 2);
@@ -236,9 +265,11 @@ for (const rematch of ["rematch", "same-map"] as const) {
     await expect(page.getByText("A little bragging rights.")).toBeVisible();
     await expect(page.locator(".achievement-list .achievement")).toHaveCount(5);
     await page.getByRole("button", { name: "Close dialog" }).click();
-    expect(await page.evaluate(() =>
-      JSON.parse(localStorage.getItem("tiny-tanks-record-v2")!).matches,
-    )).toBe(1);
+    expect(
+      await page.evaluate(
+        () => JSON.parse(localStorage.getItem("tiny-tanks-record-v2")!).matches,
+      ),
+    ).toBe(1);
   });
 }
 
@@ -416,6 +447,9 @@ test("Quick Play resets battle rules in one click, preserves comfort settings, a
     preview: false,
     reducedMotion: true,
     inputSpeed: "precise",
+    movement: true,
+    supplies: true,
+    environmentalEvents: true,
   });
   await expect(page.locator("body")).toHaveClass(/reduced-motion/);
   await expect(page.locator("#weapon-info")).toContainText("Standard Shell");
@@ -424,7 +458,8 @@ test("Quick Play resets battle rules in one click, preserves comfort settings, a
   await plus.hover();
   await page.mouse.down();
   try {
-    await expect.poll(async () => +(await page.locator("#angle").inputValue()))
+    await expect
+      .poll(async () => +(await page.locator("#angle").inputValue()))
       .toBeGreaterThan(before + 1);
   } finally {
     await page.mouse.up();
@@ -444,19 +479,68 @@ test("Quick Play resets battle rules in one click, preserves comfort settings, a
   expect(errors).toEqual([]);
 });
 
-test("Normal AI naturally misses then damages an opponent in two exchanges", async ({ page }) => {
+test("Normal AI naturally misses then damages an opponent in two exchanges", async ({
+  page,
+}) => {
   // Accuracy distributions belong to the real-physics unit calibration guard.
   // This integration scenario checks exactly two unmodified AI launches.
   await ready(page, 145);
   await settings(page, "2", "normal", "75", "green", false);
   await page.locator("#play-ai").click();
-  for (const [aiTurn, humanHealth] of [[2, "75HP"], [4, "46.5HP"]] as const) {
+  for (const [aiTurn, humanHealth] of [
+    [2, "75HP"],
+    [4, "46.5HP"],
+  ] as const) {
     await fireShot(page, 45);
     await committedAIShot(page, aiTurn);
     await humanTurn(page, aiTurn + 1);
-    await expect(page.locator(".health-number"))
-      .toHaveText([humanHealth, "75HP"]);
+    await expect(page.locator(".health-number")).toHaveText([
+      humanHealth,
+      "75HP",
+    ]);
     await expect(page.locator(".eliminated")).toHaveCount(0);
   }
   await expect(page.locator("#rematch")).toHaveCount(0);
+});
+
+test("2.2 settings and statistics remain compatible with new match options", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "tiny-tanks-settings",
+      JSON.stringify({
+        mode: "local",
+        players: 4,
+        difficulty: "hard",
+        health: 150,
+        wind: false,
+        theme: "moon",
+        crates: false,
+        movement: false,
+        preview: false,
+        reducedMotion: true,
+        inputSpeed: "precise",
+      }),
+    );
+    localStorage.setItem(
+      "tiny-tanks-record-v2",
+      JSON.stringify({ matches: 7, wins: 2, losses: 5, damage: 420 }),
+    );
+  });
+  await page.goto("./");
+  await expect(page.locator("#players .player-card")).toHaveCount(4);
+  await page.locator("#settings").click();
+  await expect(page.locator("[name=players]")).toHaveValue("4");
+  await expect(page.locator("[name=theme]")).toHaveValue("moon");
+  await expect(page.locator("[name=profile]")).toHaveValue("rolling");
+  await expect(page.locator("[name=movement]")).not.toBeChecked();
+  await expect(page.locator("[name=environmentalEvents]")).not.toBeChecked();
+  await expect(page.locator("[name=supplies]")).toBeChecked();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await page.locator("#menu-stats").click();
+  await expect(
+    page.locator(".record-grid > div").nth(2).locator("strong"),
+  ).toHaveText("7");
+  await expect(page.locator(".survival-record")).toContainText("Best streak 0");
 });
