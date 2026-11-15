@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseShot } from "../game/ai";
+import { chooseShot, fireAIShot } from "../game/ai";
 import { DEFAULT_SETTINGS, THEMES, WORLD, random } from "../game/config";
 import { Match, nextLiving, winner } from "../game/match";
 import { blastDamage, integrate, launch, sweep } from "../game/physics";
@@ -263,8 +263,7 @@ describe("AI and complete matches", () => {
       );
       let shots = 0;
       while (g.phase !== "over" && shots++ < 90) {
-        Object.assign(g.current, chooseShot(g));
-        g.fire();
+        fireAIShot(g, chooseShot(g));
         resolve(g);
       }
       expect(g.phase).toBe("over");

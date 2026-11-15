@@ -1,5 +1,6 @@
 import Phaser from "phaser";
-import { chooseShot } from "./ai";
+import { chooseShot, fireAIShot } from "./ai";
+import { AI_RULES, AI_SKILLS } from "./ai-config";
 import { AudioManager } from "./audio";
 import {
   clamp,
@@ -49,6 +50,8 @@ export class BattleScene extends Phaser.Scene {
   private terrainVersion = -1;
   private accumulator = 0;
   private aiClock = 0;
+  private aiSettled = 0;
+  private aiHudClock = 0;
   private aiShot?: ReturnType<typeof chooseShot>;
   private trails = new Map<number, { x: number; y: number }[]>();
   private ambient = 0;
@@ -85,6 +88,8 @@ export class BattleScene extends Phaser.Scene {
     this.demo = demo;
     this.paused = false;
     this.aiClock = 0;
+    this.aiSettled = 0;
+    this.aiHudClock = 0;
     this.aiShot = undefined;
     this.accumulator = 0;
     this.effects.clear();
@@ -590,6 +595,8 @@ export class BattleScene extends Phaser.Scene {
     } else if (event.type === "turn") {
       this.clearInput();
       this.aiClock = 0;
+      this.aiSettled = 0;
+      this.aiHudClock = 0;
       this.aiShot = undefined;
       this.announce(
         `${this.match.current.name.toUpperCase()}${this.match.current.ai ? " IS AIMING…" : ", YOU’RE UP"}`,
@@ -685,21 +692,49 @@ export class BattleScene extends Phaser.Scene {
       }
       if (this.match.phase === "aim" && this.match.current.ai) {
         this.aiClock += delta;
-        if (!this.aiShot && this.aiClock > 0.12) {
+        if (!this.aiShot && this.aiClock > AI_RULES.preparationDelay) {
           this.aiShot = chooseShot(this.match);
           this.match.current.weapon = this.aiShot.weapon;
-          this.match.current.power = this.aiShot.power;
           this.onChange();
         }
         if (this.aiShot) {
-          this.match.current.angle = Phaser.Math.Linear(
-            this.match.current.angle,
-            this.aiShot.angle,
-            Math.min(1, delta * 9),
-          );
-          if (this.aiClock > WORLD.aiDelay) {
-            this.match.current.angle = this.aiShot.angle;
-            this.match.fire();
+          const tank = this.match.current,
+            reduced = this.match.settings.reducedMotion;
+          tank.angle = reduced
+            ? this.aiShot.angle
+            : tank.angle +
+              clamp(
+                this.aiShot.angle - tank.angle,
+                -delta * AI_RULES.turretSpeed,
+                delta * AI_RULES.turretSpeed,
+              );
+          tank.power = reduced
+            ? this.aiShot.power
+            : tank.power +
+              clamp(
+                this.aiShot.power - tank.power,
+                -delta * AI_RULES.powerSpeed,
+                delta * AI_RULES.powerSpeed,
+              );
+          if (
+            Math.abs(tank.angle - this.aiShot.angle) <
+              AI_RULES.settledAimTolerance &&
+            Math.abs(tank.power - this.aiShot.power) <
+              AI_RULES.settledAimTolerance
+          )
+            this.aiSettled += delta;
+          else this.aiSettled = 0;
+          this.aiHudClock += delta;
+          if (this.aiHudClock > 0.08) {
+            this.aiHudClock = 0;
+            this.onChange();
+          }
+          if (
+            this.aiClock >
+              AI_SKILLS[this.match.settings.difficulty].decisionDelay &&
+            this.aiSettled > AI_RULES.aimPause
+          ) {
+            fireAIShot(this.match, this.aiShot);
             this.onChange();
           }
         }

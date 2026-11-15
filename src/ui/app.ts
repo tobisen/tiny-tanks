@@ -18,6 +18,7 @@ import {
   type AchievementId,
 } from "../game/records";
 import type { Match } from "../game/match";
+import { AI_SKILLS } from "../game/ai-config";
 import { WEAPONS, type WeaponId } from "../game/weapons";
 
 const icon = (name: string) => {
@@ -121,7 +122,7 @@ export class AppUI {
           </section>
           <div class="under-field"><span id="status" role="status" aria-live="polite"><span class="live-dot"></span> Six weapons. Destructible terrain. Zero hard feelings.</span><span class="keyboard-hints"><kbd>←</kbd><kbd>→</kbd> angle <kbd>↑</kbd><kbd>↓</kbd> power <kbd>1–6</kbd> weapons</span></div>
         </main>
-        <footer><span>BUILT FOR GOOD OLD-FASHIONED RIVALRY.</span><div><button id="install" hidden>INSTALL GAME ↗</button><span>NO ACCOUNTS. NO ADS. JUST ARTILLERY.</span><span class="version">V.2.0</span></div></footer>
+        <footer><span>BUILT FOR GOOD OLD-FASHIONED RIVALRY.</span><div><button id="install" hidden>INSTALL GAME ↗</button><span>NO ACCOUNTS. NO ADS. JUST ARTILLERY.</span><span class="version">V.2.1</span></div></footer>
       </div><div id="achievement-toast" class="achievement-toast" role="status" aria-live="polite" hidden></div>`;
     this.dialog.className = "modal";
     document.body.append(this.dialog);
@@ -366,7 +367,7 @@ export class AppUI {
     this
       .open(`${this.heading("YOUR BATTLE, YOUR RULES", "Set the scene.")}<p>${from === "pause" ? "Sound, aiming & motion apply now; battle rules apply on restart." : "Make yourself at home. Then blow it up."}</p><form id="settings-form" class="settings-grid">
       <label>Players / tanks<select name="players">${[2, 3, 4].map((n) => `<option value="${n}" ${s.players === n ? "selected" : ""}>${n} tanks (${n - 1} AI in solo)</option>`).join("")}</select></label>
-      <label>AI difficulty<select name="difficulty">${["easy", "normal", "hard"].map((d) => `<option value="${d}" ${s.difficulty === d ? "selected" : ""}>${d[0].toUpperCase() + d.slice(1)}</option>`).join("")}</select></label>
+      <label>AI difficulty<select name="difficulty">${["easy", "normal", "hard"].map((d) => `<option value="${d}" ${s.difficulty === d ? "selected" : ""}>${d[0].toUpperCase() + d.slice(1)}</option>`).join("")}</select><small id="ai-description">${AI_SKILLS[s.difficulty].description}</small></label>
       <label>Landscape<select name="theme">${Object.entries(THEMES)
         .map(
           ([id, t]) =>
@@ -389,6 +390,11 @@ export class AppUI {
       <button class="button primary full-width" type="submit">Save settings ${icon("arrow")}</button></form>`);
     const form = this.byId<HTMLFormElement>("settings-form");
     form.addEventListener("input", () => {
+      this.byId("ai-description").textContent =
+        AI_SKILLS[
+          (form.elements.namedItem("difficulty") as HTMLSelectElement)
+            .value as Settings["difficulty"]
+        ].description;
       if (this.scene) {
         this.scene.soundFX.unlock();
         this.scene.soundFX.volume =

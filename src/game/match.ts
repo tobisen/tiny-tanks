@@ -49,6 +49,31 @@ export interface Projectile extends Body {
   previousY: number;
   shot?: number;
 }
+export interface ShotIntent {
+  target: number;
+  estimatedWind: number;
+  intendedAngle: number;
+  intendedPower: number;
+  targetX: number;
+  targetY: number;
+  terrainSamples: number[];
+}
+export interface ShotOutcome {
+  owner: number;
+  turn: number;
+  angle: number;
+  power: number;
+  weapon: WeaponId;
+  wind: number;
+  originX: number;
+  originY: number;
+  targets: { id: number; x: number; y: number; health: number }[];
+  terrainBefore: number;
+  terrainAfter: number;
+  intent?: ShotIntent;
+  impacts: { x: number; y: number; direct?: number; exploded: boolean }[];
+  damage: number;
+}
 export type GameEvent =
   | { type: "shot"; x: number; y: number; weapon: WeaponId }
   | {
@@ -101,6 +126,8 @@ export class Match {
   winnerId: number | undefined;
   elapsed = 0;
   longestChain = 0;
+  readonly shotHistory: ShotOutcome[] = [];
+  private resolvingShot?: ShotOutcome;
   private hitShots = new Set<string>();
   private rng: () => number;
   private serial = 0;
@@ -182,13 +209,32 @@ export class Match {
       shot: owner.shots,
     };
   }
-  fire(): boolean {
+  fire(intent?: ShotIntent): boolean {
     if (
       this.phase !== "aim" ||
+      this.current.health <= 0 ||
       !consumeAmmo(this.current.ammo, this.current.weapon)
     )
       return false;
     const tank = this.current;
+    this.resolvingShot = {
+      owner: tank.id,
+      turn: this.turn,
+      angle: tank.angle,
+      power: tank.power,
+      weapon: tank.weapon,
+      wind: this.wind,
+      originX: tank.x,
+      originY: tank.y,
+      targets: this.tanks
+        .filter((t) => t.id !== tank.id && t.health > 0)
+        .map((t) => ({ id: t.id, x: t.x, y: t.y, health: t.health })),
+      terrainBefore: this.terrain.version,
+      terrainAfter: this.terrain.version,
+      intent,
+      impacts: [],
+      damage: 0,
+    };
     tank.shots++;
     const w = weaponById(tank.weapon);
     for (const spread of w.behavior === "spread"
@@ -258,8 +304,10 @@ export class Match {
         p.x > WORLD.width ||
         p.y > WORLD.height + 100 ||
         p.age > WORLD.maxFlight
-      )
+      ) {
+        this.resolvingShot?.impacts.push({ x: p.x, y: p.y, exploded: false });
         continue;
+      }
       if (w.behavior === "cluster" && !p.child && p.vy > 12 && p.age > 0.55) {
         for (let i = -2; i <= 2; i++)
           children.push(
@@ -277,6 +325,17 @@ export class Match {
     }
     this.projectiles = [...survivors, ...children];
     if (!this.projectiles.length) {
+      if (this.resolvingShot) {
+        const shot = this.resolvingShot;
+        shot.terrainAfter = this.terrain.version;
+        shot.damage = shot.targets.reduce(
+          (sum, t) => sum + t.health - this.tanks[t.id].health,
+          0,
+        );
+        this.shotHistory.push(shot);
+        if (this.shotHistory.length > 32) this.shotHistory.shift();
+        this.resolvingShot = undefined;
+      }
       this.phase = "settle";
       this.settleTime = 0;
     }
@@ -311,6 +370,7 @@ export class Match {
     }
   }
   private explode(x: number, y: number, p: Projectile, direct?: number): void {
+    this.resolvingShot?.impacts.push({ x, y, direct, exploded: true });
     const w = weaponById(p.weapon);
     const underground = w.behavior === "penetrate" && p.penetration > 0;
     const queue = [

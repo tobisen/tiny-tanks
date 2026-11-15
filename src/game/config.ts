@@ -11,7 +11,6 @@ export const WORLD = {
   minSpeed: 80,
   powerSpeed: 4.8,
   settleDelay: 0.38,
-  aiDelay: 0.62,
   directMultiplier: 1.35,
   damagePadding: 12,
   damageExponent: 0.8,

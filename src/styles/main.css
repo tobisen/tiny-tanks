@@ -2191,3 +2191,12 @@ body {
     white-space: nowrap;
   }
 }
+
+#ai-description {
+  font:
+    10px/1.45 Arial,
+    Helvetica,
+    sans-serif;
+  color: #a6b8a7;
+  max-width: 210px;
+}

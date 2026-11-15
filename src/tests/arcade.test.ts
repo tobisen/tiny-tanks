@@ -18,7 +18,7 @@ import {
   type PlayerResult,
 } from "../game/records";
 import { WEAPONS } from "../game/weapons";
-import { chooseShot } from "../game/ai";
+import { chooseShot, fireAIShot } from "../game/ai";
 
 function chainMatch(count = 3): Match {
   const game = new Match({ ...DEFAULT_SETTINGS, players: 2, wind: false }, 123);
@@ -301,8 +301,7 @@ describe("arcade balance, Quick Play and AI", () => {
     expect(shot.angle).toBeLessThanOrEqual(180);
     expect(shot.power).toBeGreaterThanOrEqual(0);
     expect(shot.power).toBeLessThanOrEqual(100);
-    Object.assign(game.current, shot);
-    expect(game.fire()).toBe(true);
+    expect(fireAIShot(game, shot)).toBe(true);
     resolve(game);
     if (game.winnerId !== undefined) expect(game.winnerId).toBe(0);
     else expect(game.turn).toBe(2);
