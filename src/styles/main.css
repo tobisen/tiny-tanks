@@ -2185,3 +2185,273 @@ body {
     white-space: nowrap;
   }
 }
+
+/* Battlefield Mayhem: keep new information in one quiet, wrapping HUD strip. */
+.battle-brief {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  padding: 9px 13px;
+  background: #213b34;
+  color: #d8e6c3;
+  font: 10px/1.5 var(--mono);
+  border: 1px solid #3b5547;
+  border-top: 0;
+}
+#profile-label {
+  color: var(--lime);
+  text-transform: uppercase;
+}
+#battle-notice {
+  margin-left: auto;
+  color: #ffe0a6;
+}
+.survival-play {
+  grid-column: 1 / -1;
+  border-color: #a7be73 !important;
+}
+.survival-play > span {
+  color: var(--lime);
+  font: 8px var(--mono);
+}
+.survival-record {
+  color: var(--cream);
+  font: 11px/1.6 var(--mono);
+}
+#survival-results {
+  margin: 18px 0;
+}
+#survival-results + p {
+  line-height: 1.6;
+}
+#survival-end,
+#survival-new,
+#survival-continue {
+  margin: 8px 0;
+}
+.menu .eyebrow {
+  font-size: 9px;
+}
+.home .stage {
+  min-height: 480px;
+  max-height: none;
+}
+.menu h2 {
+  font-size: clamp(60px, 6vw, 88px);
+}
+.menu-actions .button {
+  min-height: 40px;
+}
+.menu-links {
+  flex-wrap: wrap;
+}
+@media (max-width: 720px) {
+  .home .stage {
+    min-height: 450px;
+  }
+  .menu h2 {
+    font-size: 62px;
+  }
+  .menu-description {
+    margin-bottom: 12px;
+  }
+  .battle-brief {
+    gap: 5px 10px;
+    font-size: 9px;
+  }
+  #battle-notice {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+}
+@media (max-height: 600px) and (orientation: landscape) {
+  .home .stage {
+    min-height: 430px;
+  }
+  .menu h2 {
+    font-size: 56px;
+  }
+}
+@media (max-width: 720px) {
+  .controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+  }
+  .weapon-section,
+  .move-controls,
+  .fire-button {
+    grid-column: 1 / -1;
+  }
+  .aim-control {
+    min-width: 0;
+  }
+  .range-line {
+    gap: 5px;
+  }
+  .range-line input {
+    min-width: 0;
+    width: 100%;
+  }
+  .control-heading output {
+    font-size: 24px;
+  }
+  .move-controls {
+    order: 0;
+  }
+  .fire-button {
+    order: 1;
+    min-height: 54px;
+  }
+}
+.move-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+.move-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border: 1px solid #50634e;
+  border-radius: 3px;
+  background: #2a4237;
+  color: var(--cream);
+  font: 700 9px var(--mono);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  padding: 6px;
+}
+.move-button:hover:not(:disabled),
+.move-button:active:not(:disabled) {
+  background: #3b5544;
+  border-color: var(--lime);
+}
+.move-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+@media (min-width: 1100px) {
+  .controls {
+    grid-template-columns:
+      minmax(290px, 1.7fr) minmax(155px, 0.9fr) minmax(155px, 0.9fr)
+      minmax(130px, 0.7fr) minmax(150px, 0.8fr);
+    padding: 18px;
+    gap: 18px;
+  }
+  .move-buttons {
+    grid-template-columns: 1fr;
+  }
+  .fire-button {
+    min-height: 92px;
+  }
+  .stage {
+    min-height: 280px;
+    max-height: calc(100svh - 545px);
+  }
+  .home .stage {
+    min-height: 480px;
+    max-height: none;
+  }
+}
+@media (max-width: 720px) {
+  .move-button {
+    min-height: 40px;
+    font-size: 10px;
+  }
+}
+/* Keep the battlefield beside the controls on short, wide touch screens. */
+@media (min-width: 721px) and (max-width: 1099px) and (max-height: 500px) and (orientation: landscape) {
+  .topbar {
+    height: 42px;
+  }
+  .match-heading {
+    padding: 8px 0;
+  }
+  .match-heading h1 {
+    font-size: 16px;
+  }
+  .battlefield:not(.home) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+  .battlefield:not(.home) .battle-top {
+    grid-column: 1;
+    grid-row: 1;
+    height: 44px;
+    min-width: 0;
+  }
+  .battlefield:not(.home) .stage {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 0;
+    max-height: none;
+    aspect-ratio: 2;
+    align-self: start;
+  }
+  .battlefield:not(.home) .controls {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+    padding: 8px;
+  }
+  .battlefield:not(.home) .weapon-section,
+  .battlefield:not(.home) .move-controls,
+  .battlefield:not(.home) .fire-button {
+    grid-column: 1 / -1;
+  }
+  .battlefield:not(.home) .aim-control {
+    min-width: 0;
+  }
+  .battlefield:not(.home) .weapon {
+    min-height: 42px;
+    padding: 3px;
+  }
+  .battlefield:not(.home) .weapon svg {
+    width: 16px;
+    height: 16px;
+  }
+  .battlefield:not(.home) .weapon-key {
+    display: none;
+  }
+  .battlefield:not(.home) .weapon-info {
+    min-height: 0;
+    margin: 5px 0 0;
+    font-size: 8px;
+  }
+  .battlefield:not(.home) .control-heading {
+    margin-bottom: 5px;
+  }
+  .battlefield:not(.home) .range-line {
+    gap: 4px;
+  }
+  .battlefield:not(.home) .range-line input {
+    min-width: 0;
+    width: 100%;
+  }
+  .battlefield:not(.home) .adjust {
+    width: 28px;
+    height: 28px;
+  }
+  .battlefield:not(.home) .move-controls {
+    order: 0;
+  }
+  .battlefield:not(.home) .fire-button {
+    order: 1;
+    min-height: 45px;
+  }
+  .battlefield:not(.home) .players {
+    min-width: 0;
+  }
+  .battlefield:not(.home) .player-card {
+    min-width: 0;
+    padding: 5px;
+  }
+  .battlefield:not(.home) .wind-card {
+    padding: 5px;
+    min-width: 45px;
+  }
+}

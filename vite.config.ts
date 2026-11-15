@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { version } from "./package.json";
 import { VitePWA } from "vite-plugin-pwa";
 
 // A Pages user/organization site lives at /; project sites live at /repository/.
@@ -10,6 +11,7 @@ const base =
     : "/");
 export default defineConfig({
   base,
+  define: { __APP_VERSION__: JSON.stringify(version) },
   plugins: [
     VitePWA({
       registerType: "prompt",

@@ -1,5 +1,7 @@
 import {
   DEFAULT_SETTINGS,
+  BATTLEFIELDS,
+  PROFILE_IDS,
   INPUT_SPEED,
   quickPlaySettings,
   THEMES,
@@ -20,6 +22,12 @@ import {
 } from "../game/records";
 import type { Match } from "../game/match";
 import { AI_SKILLS } from "../game/ai-config";
+import {
+  SurvivalRun,
+  SURVIVAL_KEY,
+  readSurvivalRecord,
+} from "../game/survival";
+import { availableSupply, SUPPLY_NAMES } from "../game/supplies";
 import { WEAPONS, type WeaponId } from "../game/weapons";
 
 const icon = (name: string) => {
@@ -60,6 +68,9 @@ export class AppUI {
   private settingsReturn: "menu" | "pause" = "menu";
   private beforeHelpPaused = false;
   private record = emptyRecord();
+  private survival?: SurvivalRun;
+  private survivalRecord = readSurvivalRecord(null);
+  private survivalCounted = false;
   private recordedMatch?: Match;
   private pendingStart?: { mode: Settings["mode"]; seed?: number };
   private playerSignature = "";
@@ -69,6 +80,9 @@ export class AppUI {
       "(prefers-reduced-motion: reduce)",
     ).matches;
     try {
+      this.survivalRecord = readSurvivalRecord(
+        localStorage.getItem(SURVIVAL_KEY),
+      );
       this.record = readRecord(localStorage.getItem(RECORD_KEY));
       const saved = JSON.parse(
         localStorage.getItem("tiny-tanks-settings") ?? "null",
@@ -77,6 +91,11 @@ export class AppUI {
         this.settings = {
           ...this.settings,
           crates: saved.crates !== false,
+          supplies: saved.supplies !== false,
+          environmentalEvents: saved.environmentalEvents === true,
+          profile: PROFILE_IDS.includes(saved.profile!)
+            ? saved.profile!
+            : "rolling",
           preview: saved.preview !== false,
           reducedMotion:
             typeof saved.reducedMotion === "boolean"
@@ -108,13 +127,13 @@ export class AppUI {
     }
     document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <div class="shell">
-        <header class="topbar"><a class="brand" href="#" aria-label="Tiny Tanks home">${tankLogo}<span>TINY TANKS</span></a><div class="topbar-center"><span class="live-dot"></span> ARCADE EDITION <span class="edition-tag">02</span></div><nav aria-label="Game actions"><button class="icon-button" id="sound" aria-label="Mute sound">${icon("sound")}</button><button class="icon-button" id="records" aria-label="Arcade record">${icon("flag")}</button><button class="icon-button" id="help" aria-label="How to play">${icon("help")}</button><button class="icon-button" id="pause" aria-label="Pause game" disabled>${icon("pause")}</button></nav></header>
+        <header class="topbar"><a class="brand" href="#" aria-label="Tiny Tanks home">${tankLogo}<span>TINY TANKS</span></a><div class="topbar-center"><span class="live-dot"></span> BATTLEFIELD MAYHEM</div><nav aria-label="Game actions"><button class="icon-button" id="sound" aria-label="Mute sound">${icon("sound")}</button><button class="icon-button" id="records" aria-label="Arcade record">${icon("flag")}</button><button class="icon-button" id="help" aria-label="How to play">${icon("help")}</button><button class="icon-button" id="pause" aria-label="Pause game" disabled>${icon("pause")}</button></nav></header>
         <main>
           <div class="match-heading"><div><span class="eyebrow" id="match-mode">THE PROVING GROUNDS</span><h1 id="match-title">A good day to make a crater.</h1></div><div class="match-meta"><span class="theme-dot"></span><span id="theme-label">GREEN HILLS</span><span class="meta-divider">/</span><span id="turn-label">READY WHEN YOU ARE</span></div></div>
           <section class="battlefield" aria-label="Artillery battlefield">
             <div class="battle-top"><div id="players" class="players" aria-label="Tank health"></div><div class="wind-card">${icon("wind")}<div><span class="micro-label">WIND</span><strong id="wind-value">CALM</strong></div></div></div>
             <div class="stage"><div id="game" aria-label="Tiny Tanks game canvas"></div>
-              <div id="menu" class="menu"><div class="menu-content"><p class="eyebrow"><span class="tiny-star">✳</span> ARCADE EDITION / MORE BANG. MORE TROUBLE.</p><h2>TINY<br>TANKS<span>.</span></h2><p class="menu-description">Take your shot. Move mountains.<br>Try to keep your friends.</p><div class="menu-actions"><button class="button primary quick-play" id="quick-play"><span>Quick Play<small>YOU + 2 CPU · RANDOM MAP</small></span>${icon("arrow")}</button><button class="button secondary" id="play-ai">Play vs AI</button><button class="button secondary" id="play-local">Local multiplayer <span>2–4 P</span></button></div><div class="menu-links"><button id="settings">${icon("settings")} Match settings</button><span>·</span><button id="menu-help">How to play ${icon("arrow")}</button></div></div><div class="field-note"><span>EST. 2026</span><strong>MAKE A LITTLE<br>BIG TROUBLE.</strong><span>LIGHT THE FUSE. START A CHAIN.</span></div></div>
+              <div id="menu" class="menu"><div class="menu-content"><p class="eyebrow"><span class="tiny-star">✳</span> BATTLEFIELD MAYHEM / V.${__APP_VERSION__}</p><h2>TINY<br>TANKS<span>.</span></h2><p class="menu-description">Take your shot. Move mountains.<br>Try to keep your friends.</p><div class="menu-actions"><button class="button primary quick-play" id="quick-play"><span>Quick Play<small>YOU + 2 CPU · RANDOM MAP</small></span>${icon("arrow")}</button><button class="button secondary survival-play" id="play-survival">Survival <span>HOW LONG CAN YOU LAST?</span></button><button class="button secondary" id="play-ai">Custom match</button><button class="button secondary" id="play-local">Local multiplayer <span>2–4 P</span></button></div><div class="menu-links"><button id="settings">${icon("settings")} Match settings</button><span>·</span><button id="menu-stats">Statistics</button><span>·</span><button id="menu-help">How to play ${icon("arrow")}</button></div></div><div class="field-note"><span>EST. 2026</span><strong>MAKE A LITTLE<br>BIG TROUBLE.</strong><span>MOVE FOR SUPPLIES. STAY FOR THE MAYHEM.</span></div></div>
               <div class="field-coordinates" aria-hidden="true"><span>TT / FIELD OPERATIONS</span><span>01 — NO SMALL EXPLOSIONS</span></div>
             </div>
             <div id="controls" class="controls"><div class="weapon-section"><div class="control-heading"><span class="micro-label">01 / LOADOUT</span><span id="ammo-label">UNLIMITED AMMO</span></div><div class="weapons" role="group" aria-label="Weapon selection">${WEAPONS.map((w, i) => `<button class="weapon${i === 0 ? " selected" : ""}" data-weapon="${w.id}" title="${w.name} — ${w.description}" aria-label="${w.name}" aria-pressed="${i === 0}"><span class="weapon-key">${i + 1}</span>${icon(w.id === "standard" ? "shell" : w.id)}<span class="weapon-name">${w.short}</span><span class="weapon-ammo">${Number.isFinite(w.ammo) ? w.ammo : "∞"}</span></button>`).join("")}</div><p id="weapon-info" class="weapon-info"></p></div>
@@ -129,9 +148,9 @@ export class AppUI {
             </div>
             <button class="fire-button" id="fire" disabled>${icon("target")}<span>FIRE<small>SPACE TO SEND IT</small></span>${icon("arrow")}</button></div>
           </section>
-          <div class="under-field"><span id="status" role="status" aria-live="polite"><span class="live-dot"></span> Six weapons. Destructible terrain. Zero hard feelings.</span><span class="keyboard-hints"><kbd>←</kbd><kbd>→</kbd> angle <kbd>↑</kbd><kbd>↓</kbd> power <kbd>A</kbd><kbd>D</kbd> move <kbd>1–6</kbd> weapons</span></div>
+          <div class="battle-brief"><span id="profile-label"></span><span id="supply-status"></span><span id="survival-hud" hidden></span><span id="battle-notice" role="status" aria-live="polite"></span></div><div class="under-field"><span id="status" role="status" aria-live="polite"><span class="live-dot"></span> Six weapons. Destructible terrain. Zero hard feelings.</span><span class="keyboard-hints"><kbd>←</kbd><kbd>→</kbd> angle <kbd>↑</kbd><kbd>↓</kbd> power <kbd>A</kbd><kbd>D</kbd> move <kbd>1–6</kbd> weapons</span></div>
         </main>
-        <footer><span>BUILT FOR GOOD OLD-FASHIONED RIVALRY.</span><div><button id="install" hidden>INSTALL GAME ↗</button><span>NO ACCOUNTS. NO ADS. JUST ARTILLERY.</span><span class="version">V.2.2</span></div></footer>
+        <footer><span>BUILT FOR GOOD OLD-FASHIONED RIVALRY.</span><div><button id="install" hidden>INSTALL GAME ↗</button><span>NO ACCOUNTS. NO ADS. JUST ARTILLERY.</span><span class="version">V.${__APP_VERSION__}</span></div></footer>
       </div><div id="achievement-toast" class="achievement-toast" role="status" aria-live="polite" hidden></div>`;
     this.dialog.className = "modal";
     document.body.append(this.dialog);
@@ -199,6 +218,8 @@ export class AppUI {
       this.settings = quickPlaySettings(Math.random, this.settings);
       this.start("ai");
     });
+    this.click("play-survival", () => this.startSurvival());
+    this.click("menu-stats", () => this.showRecord());
     this.click("records", () => this.showRecord());
     this.click("play-ai", () => this.start("ai"));
     this.click("play-local", () => this.start("local"));
@@ -267,10 +288,11 @@ export class AppUI {
           event.preventDefault();
           button.setPointerCapture(event.pointerId);
           this.scene?.move(direction);
+          this.scene?.holdMove(event.pointerId, direction);
           this.scene?.soundFX.unlock();
         };
         const stop = (event: PointerEvent) => {
-          this.scene?.clearInput();
+          this.scene?.releaseMove(event.pointerId);
           if (button.hasPointerCapture(event.pointerId))
             button.releasePointerCapture(event.pointerId);
         };
@@ -339,15 +361,84 @@ export class AppUI {
       this.pendingStart = { mode, seed };
       return;
     }
+    if (mode !== "survival") this.survival = undefined;
     this.dialog.close();
     this.screen = "game";
     this.settings.mode = mode;
     this.save();
     this.scene.soundFX.unlock();
     this.scene.startMatch(this.settings, false, seed);
+    if (mode === "survival") this.survival?.applyResources(this.scene.match);
     this.sync();
   }
+  private startSurvival(): void {
+    if (this.survival && !this.survivalCounted) {
+      this.survival.finish();
+      this.saveSurvival(true);
+    }
+    this.survival = new SurvivalRun(Date.now(), this.settings);
+    this.survivalCounted = false;
+    this.settings = this.survival.settings;
+    this.start("survival", this.survival.battleSeed);
+  }
+  private saveSurvival(completed = false): void {
+    if (!this.survival) return;
+    this.survivalRecord = this.survival.record(
+      this.survivalRecord,
+      completed && !this.survivalCounted,
+    );
+    if (completed) this.survivalCounted = true;
+    try {
+      localStorage.setItem(SURVIVAL_KEY, JSON.stringify(this.survivalRecord));
+    } catch {
+      /* Optional local record. */
+    }
+  }
+  private survivalResults(): void {
+    const run = this.survival!;
+    const cleared = run.awaitingContinue && !run.ended;
+    this.open(`${this.heading(
+      "SURVIVAL / BATTLE " + run.battle,
+      cleared ? "Hill secured. Keep going?" : "Run over. A good fight.",
+    )}
+      <div id="survival-results" class="record-grid">
+        <div><strong>${run.survived}</strong><span>BATTLES SURVIVED</span></div>
+        <div><strong>${run.kills}</strong><span>ENEMIES ELIMINATED</span></div>
+        <div><strong>${number(run.damage)}</strong><span>DAMAGE DEALT</span></div>
+        <div><strong>${accuracy(run)}%</strong><span>ACCURACY</span></div>
+        <div><strong>${run.score}</strong><span>SURVIVAL SCORE</span></div>
+        <div><strong>${this.survivalRecord.bestStreak}</strong><span>BEST STREAK</span></div>
+      </div>
+      ${
+        cleared
+          ? `<p>Carry your tank into a new battlefield. Recovery: +${run.recovery} HP · ${run.recoveryAmmo}. Mega Bombs stay scarce.</p>
+        <button class="button primary" id="survival-continue">Continue to battle ${run.battle + 1} ${icon("arrow")}</button>
+        <button class="button secondary" id="survival-end">End run</button>`
+          : `<button class="button primary" id="survival-new">New survival run ${icon("arrow")}</button>`
+      }
+      <button class="text-button" id="results-home">Main menu</button>`);
+    this.dialog.querySelector("[data-close]")?.remove();
+    if (cleared) {
+      this.click("survival-continue", () => {
+        run.continue();
+        this.settings = run.settings;
+        this.start("survival", run.battleSeed);
+      });
+      this.click("survival-end", () => {
+        run.finish();
+        this.saveSurvival(true);
+        this.survivalResults();
+      });
+    } else this.click("survival-new", () => this.startSurvival());
+    this.click("results-home", () => this.home());
+  }
   private home(): void {
+    if (this.survival && !this.survivalCounted) {
+      this.survival.finish();
+      this.saveSurvival(true);
+    }
+    this.survival = undefined;
+    if (this.settings.mode === "survival") this.settings.mode = "ai";
     this.dialog.close();
     this.screen = "menu";
     this.scene?.startMatch(this.settings, true, 2026);
@@ -379,13 +470,15 @@ export class AppUI {
     this.scene.clearInput();
     this.scene.paused = true;
     this.open(
-      `${this.heading("TAKE A BREATHER", "Hold your fire.")}<p>The hills aren’t going anywhere. Yet.</p><div class="modal-actions"><button class="button primary" id="resume">Resume match ${icon("arrow")}</button><button class="button secondary" id="restart">Restart match</button><button class="button secondary" id="pause-settings">Sound & match settings</button><button class="text-button" id="home">Back to main menu</button></div>`,
+      `${this.heading("TAKE A BREATHER", "Hold your fire.")}<p>The hills aren’t going anywhere. Yet.</p><div class="modal-actions"><button class="button primary" id="resume">Resume match ${icon("arrow")}</button><button class="button secondary" id="restart">${this.survival ? "Restart survival run" : "Restart match"}</button><button class="button secondary" id="pause-settings">Sound & match settings</button><button class="text-button" id="home">Back to main menu</button></div>`,
     );
     this.click("resume", () => {
       this.dialog.close();
       this.resume();
     });
-    this.click("restart", () => this.start(this.settings.mode));
+    this.click("restart", () =>
+      this.survival ? this.startSurvival() : this.start(this.settings.mode),
+    );
     this.click("pause-settings", () => this.showSettings("pause"));
     this.click("home", () => this.home());
     this.sync();
@@ -403,9 +496,19 @@ export class AppUI {
             `<option value="${id}" ${s.theme === id ? "selected" : ""}>${t.name}</option>`,
         )
         .join("")}</select></label>
+      <label>Battlefield<select name="profile">${Object.entries(BATTLEFIELDS)
+        .map(
+          ([id, profile]) =>
+            `<option value="${id}" ${s.profile === id ? "selected" : ""}>${profile.name}</option>`,
+        )
+        .join(
+          "",
+        )}</select><small id="profile-description">${BATTLEFIELDS[s.profile].description}</small></label>
       <label>Starting health<select name="health">${[75, 100, 150].map((n) => `<option value="${n}" ${s.health === n ? "selected" : ""}>${n} HP</option>`).join("")}</select></label>
       <label class="toggle-label">Wind<input name="wind" type="checkbox" ${s.wind ? "checked" : ""}></label>
       <label class="toggle-label">Explosive crates<input name="crates" type="checkbox" ${s.crates ? "checked" : ""}></label>
+      <label class="toggle-label">Supply Drops<input name="supplies" type="checkbox" ${s.supplies ? "checked" : ""}></label>
+      <label class="toggle-label">Environmental Events<input name="environmentalEvents" type="checkbox" ${s.environmentalEvents ? "checked" : ""}></label>
       <label class="toggle-label">Aim preview<input name="preview" type="checkbox" ${s.preview ? "checked" : ""}></label>
       <label class="toggle-label">Reduced motion<input name="reducedMotion" type="checkbox" ${s.reducedMotion ? "checked" : ""}></label>
       <label class="toggle-label">Tank movement<input name="movement" type="checkbox" ${s.movement ? "checked" : ""}></label>
@@ -420,6 +523,13 @@ export class AppUI {
       <button class="button primary full-width" type="submit">Save settings ${icon("arrow")}</button></form>`);
     const form = this.byId<HTMLFormElement>("settings-form");
     form.addEventListener("input", () => {
+      const profileDescription = this.byId("profile-description");
+      if (profileDescription)
+        profileDescription.textContent =
+          BATTLEFIELDS[
+            (form.elements.namedItem("profile") as HTMLSelectElement)
+              .value as Settings["profile"]
+          ].description;
       this.byId("ai-description").textContent =
         AI_SKILLS[
           (form.elements.namedItem("difficulty") as HTMLSelectElement)
@@ -442,6 +552,9 @@ export class AppUI {
         players: +data.get("players")!,
         difficulty: data.get("difficulty") as Settings["difficulty"],
         theme: data.get("theme") as Settings["theme"],
+        profile: data.get("profile") as Settings["profile"],
+        supplies: data.has("supplies"),
+        environmentalEvents: data.has("environmentalEvents"),
         health: +data.get("health")!,
         wind: data.has("wind"),
         crates: data.has("crates"),
@@ -451,6 +564,15 @@ export class AppUI {
         inputSpeed: data.get("inputSpeed") as Settings["inputSpeed"],
       };
       this.save();
+      if (this.survival)
+        Object.assign(this.survival.preferences, {
+          preview: this.settings.preview,
+          reducedMotion: this.settings.reducedMotion,
+          inputSpeed: this.settings.inputSpeed,
+          movement: this.settings.movement,
+          supplies: this.settings.supplies,
+          environmentalEvents: this.settings.environmentalEvents,
+        });
       if (this.settingsReturn === "pause") {
         if (this.scene)
           Object.assign(this.scene.match.settings, {
@@ -471,7 +593,7 @@ export class AppUI {
     this.beforeHelpPaused = this.scene?.paused ?? false;
     if (this.scene && this.screen === "game") this.scene.paused = true;
     this.open(
-      `${this.heading("FIELD MANUAL / 001", "Aim high. Hit hard.")}<p>Last tank standing wins. Each turn, pick a weapon, set your angle and power, and send it.</p><div class="help-steps"><div><b>01</b><p><strong>Find your angle.</strong><br>0° fires right. 90° fires up. 180° fires left. Use ← / → or the angle slider.</p></div><div><b>02</b><p><strong>Give it some power.</strong><br>More power sends your shell further. Adjust with ↑ / ↓. Watch the wind before firing.</p></div><div><b>03</b><p><strong>Make a crater.</strong><br>Press Space or FIRE. Direct hits hurt most. Craters drop tanks and cause fall damage. Number keys 1–6 switch weapons. Orange crates explode and can trigger their neighbors. Use them to your advantage.</p></div></div><p class="help-note">Local multiplayer: pass the device when the next tank’s name appears. Escape pauses. On mobile, use the sliders or hold the + / − buttons. Aim preview, input speed, and reduced motion are in Match settings.</p><button class="button primary" id="got-it">Got it. Let’s play. ${icon("arrow")}</button>`,
+      `${this.heading("FIELD MANUAL / 001", "Aim high. Hit hard.")}<p>Last tank standing wins. Each turn, pick a weapon, set your angle and power, and send it.</p><div class="help-steps"><div><b>01</b><p><strong>Find your angle.</strong><br>0° fires right. 90° fires up. 180° fires left. Use ← / → or the angle slider.</p></div><div><b>02</b><p><strong>Give it some power.</strong><br>More power sends your shell further. Adjust with ↑ / ↓. Watch the wind before firing.</p></div><div><b>03</b><p><strong>Make a crater.</strong><br>Press Space or FIRE. Direct hits hurt most. Craters drop tanks and cause fall damage. Number keys 1–6 switch weapons. Orange crates explode and can trigger their neighbors. Use them to your advantage.</p></div></div><p class="help-note">Move with A/D or hold the move buttons. Parachutes bring repair, fuel and limited ammo; move into a landed supply to collect it. Gusts are announced before firing, and marked tremors briefly lock controls while shallow ground settles. Survival carries health and ammunition between battles. Local multiplayer: pass the device when the next tank’s name appears. Escape pauses. On mobile, use the sliders or hold the + / − buttons. Aim preview, input speed, and reduced motion are in Match settings.</p><button class="button primary" id="got-it">Got it. Let’s play. ${icon("arrow")}</button>`,
     );
     this.click("got-it", () => {
       if (this.beforeHelpPaused) this.pause();
@@ -483,6 +605,10 @@ export class AppUI {
     this.sync();
   }
   private gameOver(): void {
+    if (this.survival) {
+      this.survivalResults();
+      return;
+    }
     const match = this.scene!.match,
       winner = match.tanks.find((t) => t.id === match.winnerId);
     this.open(
@@ -492,7 +618,7 @@ export class AppUI {
         .sort((a, b) => b.health - a.health || b.damage - a.damage)
         .map(
           (t) =>
-            `<div class="result-row"><strong style="color:${t.color}">${t.id === winner?.id ? "★ " : ""}${t.name}</strong><span>${t.kills}</span><span>${t.damage}</span><span>${t.shots}</span><span>${accuracy(t)}%</span></div>`,
+            `<div class="result-row"><strong style="color:${t.color}">${t.id === winner?.id ? "★ " : ""}${t.name}</strong><span>${t.kills}</span><span>${number(t.damage)}</span><span>${t.shots}</span><span>${accuracy(t)}%</span></div>`,
         )
         .join(
           "",
@@ -536,6 +662,10 @@ export class AppUI {
     }
     if (match.phase !== "over" || this.recordedMatch === match) return;
     this.recordedMatch = match;
+    if (this.survival) {
+      this.survival.recordBattle(match);
+      this.saveSurvival(this.survival.ended);
+    }
     const updated = updateRecord(this.record, resultFor(match));
     this.record = updated.record;
     this.saveRecord();
@@ -563,7 +693,7 @@ export class AppUI {
         )
         .join(
           "",
-        )}</div><div class="achievement-list">${ACHIEVEMENTS.map((a) => `<div class="achievement ${r.achievements.includes(a.id) ? "earned" : ""}"><span>${r.achievements.includes(a.id) ? "★" : "◇"}</span><div><strong>${a.name}</strong><p>${a.description}</p></div></div>`).join("")}</div>`,
+        )}</div><p class="survival-record">SURVIVAL · Best streak <strong>${this.survivalRecord.bestStreak}</strong> · Best score <strong>${this.survivalRecord.bestScore}</strong> · Runs ${this.survivalRecord.runs}</p><div class="achievement-list">${ACHIEVEMENTS.map((a) => `<div class="achievement ${r.achievements.includes(a.id) ? "earned" : ""}"><span>${r.achievements.includes(a.id) ? "★" : "◇"}</span><div><strong>${a.name}</strong><p>${a.description}</p></div></div>`).join("")}</div>`,
     );
   }
   sync(): void {
@@ -579,9 +709,11 @@ export class AppUI {
     this.byId<HTMLButtonElement>("pause").disabled =
       !inGame || match.phase === "over";
     this.byId("match-mode").textContent = inGame
-      ? match.settings.mode === "ai"
-        ? "SOLO SKIRMISH"
-        : "PASS & PLAY"
+      ? match.settings.mode === "survival"
+        ? "SURVIVAL · BATTLE " + this.survival?.battle
+        : match.settings.mode === "ai"
+          ? "SOLO SKIRMISH"
+          : "PASS & PLAY"
       : "THE PROVING GROUNDS";
     this.byId("match-title").textContent = inGame
       ? match.phase === "over"
@@ -596,13 +728,29 @@ export class AppUI {
     const playersHTML = match.tanks
       .map(
         (t) =>
-          `<div class="player-card ${inGame && t.id === tank.id ? "active" : ""} ${t.health <= 0 ? "eliminated" : ""}" style="--tank-color:${t.color}"><span class="player-avatar">${tankLogo}</span><div class="player-details"><div><strong>${t.name}</strong><span>${t.ai ? "CPU" : match.settings.mode === "ai" ? "YOU" : `P${t.id + 1}`}</span></div><div class="health-track"><i style="width:${(t.health / match.settings.health) * 100}%"></i></div></div><span class="health-number">${t.health}<small>HP</small></span></div>`,
+          `<div class="player-card ${inGame && t.id === tank.id ? "active" : ""} ${t.health <= 0 ? "eliminated" : ""}" style="--tank-color:${t.color}"><span class="player-avatar">${tankLogo}</span><div class="player-details"><div><strong>${t.name}</strong><span>${t.ai ? "CPU" : match.settings.mode !== "local" ? "YOU" : `P${t.id + 1}`}</span></div><div class="health-track"><i style="width:${(t.health / match.settings.health) * 100}%"></i></div></div><span class="health-number">${number(t.health)}<small>HP</small></span></div>`,
       )
       .join("");
     if (playersHTML !== this.playerSignature) {
       this.byId("players").innerHTML = playersHTML;
       this.playerSignature = playersHTML;
     }
+    this.byId("profile-label").textContent =
+      BATTLEFIELDS[match.settings.profile].name;
+    const drops = match.supplies.filter(availableSupply);
+    this.byId("supply-status").textContent =
+      inGame && match.settings.supplies
+        ? drops.length
+          ? drops.map((s) => `${SUPPLY_NAMES[s.kind]} · ${s.state}`).join(" / ")
+          : "SUPPLY DROPS ON"
+        : "";
+    this.byId("battle-notice").textContent = inGame
+      ? match.notice
+      : "Four battlefields. Three supplies. One more round.";
+    this.byId("survival-hud").hidden = !this.survival;
+    this.byId("survival-hud").textContent = this.survival
+      ? `STREAK ${this.survival.survived} · SCORE ${this.survival.score}`
+      : "";
     const weapon = WEAPONS.find((w) => w.id === tank.weapon)!;
     this.byId("weapon-info").innerHTML =
       `<strong>${weapon.name}</strong> ${weapon.description}`;
@@ -649,26 +797,30 @@ export class AppUI {
       });
     this.byId<HTMLButtonElement>("fire").disabled = !scene.canAim;
     this.byId("fire").querySelector("small")!.textContent =
-      match.phase === "flight"
-        ? "SHOT IN FLIGHT"
-        : match.phase === "settle"
-          ? "RESOLVING IMPACT"
-          : tank.ai
-            ? "CPU IS AIMING"
-            : "SPACE TO SEND IT";
+      match.phase === "warning"
+        ? "GROUND WARNING"
+        : match.phase === "flight"
+          ? "SHOT IN FLIGHT"
+          : match.phase === "settle"
+            ? "RESOLVING IMPACT"
+            : tank.ai
+              ? "CPU IS AIMING"
+              : "SPACE TO SEND IT";
     const status = !inGame
       ? "Six weapons. Destructible terrain. Zero hard feelings."
       : match.phase === "over"
         ? "Good game. Same time, same hill?"
         : scene.paused
           ? "Match paused."
-          : match.phase === "flight"
-            ? "Incoming. Let gravity do its thing."
-            : match.phase === "settle"
-              ? "Let the dust settle…"
-              : tank.ai
-                ? `${tank.name} is lining up a shot…`
-                : `You’re up, ${tank.name}. ${weaponByName(tank.weapon)} loaded.`;
+          : match.phase === "warning"
+            ? "Ground tremor incoming. Hold your fire."
+            : match.phase === "flight"
+              ? "Incoming. Let gravity do its thing."
+              : match.phase === "settle"
+                ? "Let the dust settle…"
+                : tank.ai
+                  ? `${tank.name} is lining up a shot…`
+                  : `You’re up, ${tank.name}. ${weaponByName(tank.weapon)} loaded.`;
     this.byId("status").innerHTML = `<span class="live-dot"></span>${status}`;
     this.byId("sound").innerHTML = icon(
       scene.soundFX.enabled ? "sound" : "mute",
@@ -699,3 +851,5 @@ export class AppUI {
 function weaponByName(id: WeaponId): string {
   return WEAPONS.find((w) => w.id === id)!.name;
 }
+
+const number = (value: number): string => String(+value.toFixed(2));

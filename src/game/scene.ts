@@ -1,4 +1,7 @@
 import Phaser from "phaser";
+import { chooseSupplyMove, type SupplyMove } from "./ai-movement";
+import { availableSupply } from "./supplies";
+import { ENVIRONMENT } from "./config";
 import { chooseShot, fireAIShot } from "./ai";
 import { AI_RULES, AI_SKILLS } from "./ai-config";
 import { AudioManager } from "./audio";
@@ -35,6 +38,10 @@ export class BattleScene extends Phaser.Scene {
   private background!: Phaser.GameObjects.Graphics;
   private cloudGraphics!: Phaser.GameObjects.Graphics;
   private effects!: CombatEffects;
+  private supplyGraphics!: Phaser.GameObjects.Graphics;
+  private aiMove?: SupplyMove;
+  private aiMoveChecked = false;
+  private duelTime = 0;
   private crateGraphics!: Phaser.GameObjects.Graphics;
   private scars: { x: number; radius: number }[] = [];
   private originalTerrain = new Float64Array(WORLD.width + 1);
@@ -69,6 +76,7 @@ export class BattleScene extends Phaser.Scene {
     this.aimGraphics = this.add.graphics();
     this.projectileGraphics = this.add.graphics();
     this.crateGraphics = this.add.graphics().setDepth(3);
+    this.supplyGraphics = this.add.graphics().setDepth(6);
     this.effects = new CombatEffects(this.add.graphics().setDepth(10));
     window.addEventListener("keydown", (event: KeyboardEvent) => {
       if (
@@ -101,7 +109,10 @@ export class BattleScene extends Phaser.Scene {
     this.aiSettled = 0;
     this.aiHudClock = 0;
     this.aiShot = undefined;
+    this.aiMove = undefined;
+    this.aiMoveChecked = false;
     this.accumulator = 0;
+    this.duelTime = 0;
     this.effects.clear();
     this.scars = [];
     this.originalTerrain.set(this.match.terrain.heights);
@@ -196,6 +207,12 @@ export class BattleScene extends Phaser.Scene {
       return;
     this.match.move(direction, 1 / 60);
     this.onChange();
+  }
+  holdMove(pointer: number, direction: -1 | 1): void {
+    if (this.canAim) this.touchMove.set(pointer, direction);
+  }
+  releaseMove(pointer: number): void {
+    this.touchMove.delete(pointer);
   }
   get canAim(): boolean {
     return (
@@ -471,7 +488,18 @@ export class BattleScene extends Phaser.Scene {
     );
     g.fillStyle(color).fillRect(x - 10, y - 33 - tank.id * 2, 4, 3);
     g.fillStyle(0x102b29, 0.45).fillRect(x - 4, y - 18, 6, 3);
-    if (tank.health < this.match.settings.health * 0.4) {
+    const healthRatio = tank.health / this.match.settings.health;
+    if (healthRatio < 0.7) {
+      g.lineStyle(2, 0x243632, 0.8).lineBetween(x - 10, y - 18, x - 4, y - 12);
+      g.lineBetween(x + 3, y - 14, x + 8, y - 10);
+    }
+    if (healthRatio < 0.3) {
+      const flicker = this.match.settings.reducedMotion
+        ? 0.7
+        : 0.4 + Math.sin(this.ambient * 13 + tank.id) * 0.3;
+      g.fillStyle(0xffbe78, flicker).fillRect(x + 10, y - 15, 3, 3);
+    }
+    if (healthRatio < 0.7) {
       g.fillStyle(0x25332f, 0.25).fillCircle(
         x - 9,
         y -
@@ -529,6 +557,67 @@ export class BattleScene extends Phaser.Scene {
       ).fillRect(x - 2, y - 26, 4, 3);
     }
   }
+  private drawSupplies(): void {
+    const g = this.supplyGraphics;
+    g.clear();
+    for (const drop of this.match.supplies) {
+      if (!availableSupply(drop)) continue;
+      const { x, y } = drop;
+      if (drop.state === "falling") {
+        g.lineStyle(1.5, 0xf6f4d8).lineBetween(x - 22, y - 45, x - 9, y - 16);
+        g.lineBetween(x + 22, y - 45, x + 9, y - 16);
+        g.fillStyle(0xf6f4d8).fillEllipse(x, y - 48, 48, 20);
+        g.fillStyle(0xe49f6b).fillTriangle(
+          x - 7,
+          y - 57,
+          x + 7,
+          y - 57,
+          x,
+          y - 39,
+        );
+      }
+      const tint = { repair: 0xa6eda9, fuel: 0xffd07a, ammo: 0xafd8ff }[
+        drop.kind
+      ];
+      g.fillStyle(0x142b30).fillRoundedRect(x - 12, y - 23, 24, 23, 3);
+      g.lineStyle(2, tint).strokeRoundedRect(x - 12, y - 23, 24, 23, 3);
+      g.fillStyle(tint);
+      if (drop.kind === "repair") {
+        g.fillRect(x - 2, y - 19, 4, 15).fillRect(x - 7, y - 14, 14, 4);
+      } else if (drop.kind === "fuel") {
+        g.fillRoundedRect(x - 6, y - 17, 12, 12, 2);
+        g.lineStyle(2, tint).strokeRect(x - 3, y - 21, 7, 4);
+        g.lineStyle(1, 0x142b30).lineBetween(x - 4, y - 14, x + 4, y - 7);
+      } else {
+        g.fillRect(x - 4, y - 14, 8, 9).fillTriangle(
+          x - 4,
+          y - 14,
+          x + 4,
+          y - 14,
+          x,
+          y - 21,
+        );
+      }
+    }
+    if (this.match.tremor) {
+      const { x } = this.match.tremor,
+        y = this.match.terrain.at(x);
+      g.lineStyle(3, 0xffcb7a, 0.8).strokeEllipse(
+        x,
+        y - 1,
+        ENVIRONMENT.tremorRadius * 2,
+        15,
+      );
+      g.fillStyle(0xffcb7a).fillTriangle(
+        x,
+        y - 45,
+        x - 7,
+        y - 31,
+        x + 7,
+        y - 31,
+      );
+    }
+  }
   private handleEvent(event: GameEvent): void {
     if (event.type === "shot") {
       const w = weaponById(event.weapon),
@@ -560,6 +649,42 @@ export class BattleScene extends Phaser.Scene {
           event.crate ? 150 : 110 + w.recoil * 7,
           event.crate ? 0.003 : w.shake,
         );
+    } else if (event.type === "supply") {
+      if (event.action === "pickup") {
+        this.announce(event.text);
+        this.effects.flash(event.drop.x, event.drop.y - 15, 30, 0xe6f8ae);
+        this.soundFX.select(2);
+      } else if (event.action === "drop")
+        this.announce(event.text.toUpperCase());
+    } else if (event.type === "environment") {
+      this.announce(event.text.toUpperCase());
+      if (event.action === "tremor") {
+        this.terrainVersion = -1;
+        this.effects.burst(
+          event.x,
+          this.match.terrain.at(event.x),
+          12,
+          0xb5ad90,
+          0.5,
+          "dirt",
+        );
+        this.soundFX.boom(0.08, 0.2);
+        if (!this.match.settings.reducedMotion)
+          this.cameras.main.shake(120, 0.001);
+      }
+    } else if (event.type === "direct-hit") {
+      // Visual emphasis leaves simulation timing and player input untouched.
+      this.effects.flash(event.x, event.y, 37, 0xffffff);
+      this.effects.burst(event.x, event.y, 10, 0xffe6a7, 0.45);
+      this.tankViews[event.id].hit = 0.22;
+      this.tankViews[event.id].recoil = 7;
+      this.soundFX.directHit();
+    } else if (event.type === "near-miss") {
+      this.effects.flash(event.x, event.y, 14, 0xd6e5df, 0.2);
+    } else if (event.type === "duel") {
+      this.duelTime = 1.8;
+      this.announce("FINAL DUEL · TWO TANKS. ONE HILL.");
+      this.soundFX.duel();
     } else if (event.type === "damage") {
       this.tankViews[event.id].hit = 0.18;
       this.soundFX.hit();
@@ -567,7 +692,7 @@ export class BattleScene extends Phaser.Scene {
         .text(
           event.x,
           event.y - 10,
-          `${event.fall ? "↓ " : "−"}${event.amount}`,
+          `${event.fall ? "↓ " : "−"}${+event.amount.toFixed(2)}`,
           {
             fontFamily: "monospace",
             fontStyle: "bold",
@@ -592,6 +717,10 @@ export class BattleScene extends Phaser.Scene {
         },
       });
     } else if (event.type === "death") {
+      this.duelTime = 1.2;
+      this.announce(
+        `${this.match.tanks[event.id].name.toUpperCase()} ELIMINATED`,
+      );
       this.addParticles(event.x, event.y, 30, 0xff927a, 1.3);
       this.effects.flash(event.x, event.y, 42, 0xff927a);
       this.effects.burst(event.x, event.y, 14, 0x344a40, 1.4, "debris");
@@ -622,9 +751,12 @@ export class BattleScene extends Phaser.Scene {
       this.aiSettled = 0;
       this.aiHudClock = 0;
       this.aiShot = undefined;
-      this.announce(
-        `${this.match.current.name.toUpperCase()}${this.match.current.ai ? " IS AIMING…" : ", YOU’RE UP"}`,
-      );
+      this.aiMove = undefined;
+      this.aiMoveChecked = false;
+      if (this.duelTime <= 0)
+        this.announce(
+          `${this.match.current.name.toUpperCase()}${this.match.current.ai ? " IS AIMING…" : ", YOU’RE UP"}`,
+        );
     } else if (event.type === "win") {
       if (this.match.settings.mode === "local" || this.match.winnerId === 0)
         this.soundFX.victory();
@@ -674,6 +806,7 @@ export class BattleScene extends Phaser.Scene {
   update(_time: number, deltaMs: number): void {
     if (!this.match) return;
     const delta = Math.min(deltaMs / 1000, 0.05);
+    if (!this.paused) this.duelTime = Math.max(0, this.duelTime - delta);
     if (!this.paused && !this.match.settings.reducedMotion)
       this.ambient += delta;
     this.effects.reducedMotion = this.match.settings.reducedMotion;
@@ -716,9 +849,10 @@ export class BattleScene extends Phaser.Scene {
       }
       const moveDirection =
         Number(this.held.has("KeyD")) - Number(this.held.has("KeyA"));
-      const touchDirection =
-        Number(this.touchMove.get(0) === 1) -
-        Number(this.touchMove.get(0) === -1);
+      const touchDirection = [...this.touchMove.values()].reduce<number>(
+        (sum, direction) => sum + direction,
+        0,
+      );
       const direction =
         this.match.phase === "aim" &&
         this.match.settings.movement &&
@@ -726,12 +860,32 @@ export class BattleScene extends Phaser.Scene {
           ? clamp(moveDirection + touchDirection, -1, 1)
           : 0;
       if (direction !== 0 && this.match.phase === "aim") {
-        this.match.move(direction as -1 | 1, delta * 4);
+        this.match.move(direction as -1 | 1, delta);
         this.onChange();
       }
       if (this.match.phase === "aim" && this.match.current.ai) {
-        this.aiClock += delta;
-        if (!this.aiShot && this.aiClock > AI_RULES.preparationDelay) {
+        if (!this.aiMoveChecked) {
+          this.aiMove = chooseSupplyMove(this.match);
+          this.aiMoveChecked = true;
+        }
+        if (this.aiMove) {
+          const drop = this.match.supplies.find(
+            (s) => s.id === this.aiMove!.supplyId,
+          );
+          if (
+            !drop ||
+            drop.state !== "landed" ||
+            !this.match.move(this.aiMove.direction, delta)
+          )
+            this.aiMove = undefined;
+          this.onChange();
+        }
+        if (!this.aiMove) this.aiClock += delta;
+        if (
+          !this.aiMove &&
+          !this.aiShot &&
+          this.aiClock > AI_RULES.preparationDelay
+        ) {
           this.aiShot = chooseShot(this.match);
           this.match.current.weapon = this.aiShot.weapon;
           this.onChange();
@@ -789,6 +943,7 @@ export class BattleScene extends Phaser.Scene {
     for (const tank of this.match.tanks)
       this.drawTank(tank, this.tankViews[tank.id], this.paused ? 0 : delta);
     this.drawCrates();
+    this.drawSupplies();
     this.drawAim();
     this.drawProjectiles();
     this.effects.draw(this.paused ? 0 : delta, this.match.wind);

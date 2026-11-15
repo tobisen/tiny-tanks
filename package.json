@@ -1,6 +1,6 @@
 {
   "name": "tiny-tanks",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test:browser": "playwright test",
     "calibrate": "vite-node scripts/calibrate-ai.ts",
-    "calibrate:baseline": "vite-node scripts/calibrate-ai.ts --baseline"
+    "calibrate:baseline": "vite-node scripts/calibrate-ai.ts --baseline",
+    "balance:mayhem": "vite-node scripts/balance-mayhem.ts"
   },
   "dependencies": {
     "phaser": "^3.90.0"

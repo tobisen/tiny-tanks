@@ -114,6 +114,14 @@ export class AudioManager {
     for (const [i, note] of [330, 277, 220].entries())
       this.tone(note, 0.25, "triangle", 0.1, i * 0.14);
   }
+  directHit(): void {
+    this.tone(640, 0.09, "triangle", 0.08);
+    this.tone(920, 0.06, "sine", 0.05, 0.035);
+  }
+  duel(): void {
+    this.tone(196, 0.18, "triangle", 0.08);
+    this.tone(294, 0.22, "triangle", 0.07, 0.15);
+  }
   hit(): void {
     this.tone(330, 0.12, "sawtooth", 0.04);
   }
