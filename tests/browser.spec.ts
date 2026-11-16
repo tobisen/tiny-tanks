@@ -383,34 +383,22 @@ test("production manifest, installability metadata and an offline reload work un
   await context.setOffline(false);
 });
 
-test("every weapon fires and resolves in the actual renderer", async ({
-  page,
-}) => {
+// Each weapon gets its own bounded scenario. Ten consecutive flights must not
+// share one test timeout, especially on a software-rendered CI runner.
+for (const name of [
+  "Standard Shell", "Heavy Shell", "Triple Shot", "Cluster Bomb", "Bunker Buster",
+  "Mega Bomb", "Napalm", "Bouncing Betty", "Air Strike", "Seismic Charge",
+]) test(`${name} fires and resolves in the production renderer`, async ({ page }) => {
   await ready(page);
   await settings(page, "4", "normal", "150");
   await page.locator("#play-local").click();
-  for (const name of [
-    "Standard Shell",
-    "Heavy Shell",
-    "Triple Shot",
-    "Cluster Bomb",
-    "Bunker Buster",
-    "Mega Bomb", "Napalm", "Bouncing Betty", "Air Strike", "Seismic Charge",
-  ]) {
-    if (name !== "Standard Shell") {
-      await page.locator("#pause").click();
-      await page.locator("#restart").click();
-    }
-    await page.getByRole("button", { name, exact: true }).click();
-    if (name === "Air Strike") await setRange(page, "air-target", 640);
-    await setRange(page, "angle", 60);
-    await setRange(page, "power", 35);
-    await page.locator("#fire").click();
-    await expect(page.locator("#turn-label")).toHaveText("TURN 02", {
-      timeout: 20000,
-    });
-    await expect(page.locator("#fire")).toBeEnabled();
-  }
+  await page.getByRole("button", { name, exact: true }).click();
+  if (name === "Air Strike") await setRange(page, "air-target", 640);
+  await setRange(page, "angle", 60);
+  await setRange(page, "power", 35);
+  await page.locator("#fire").click();
+  await expect(page.locator("#turn-label")).toHaveText("TURN 02", { timeout: 20000 });
+  await expect(page.locator("#fire")).toBeEnabled();
 });
 
 test("Quick Play resets battle rules in one click, preserves comfort settings, and supports smooth aim holds", async ({

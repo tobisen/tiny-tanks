@@ -47,3 +47,7 @@ The initial release verified clean installations and offline reloads, but missed
 The follow-up activates updated offline assets without requiring old tabs to close. The current client intercepts reload requests and presents an update notice; it never reloads a running match automatically. Online/focus events check for newer assets. A local-origin browser regression reproduces a cached 2.2 navigation with another old tab open, upgrades through the real production worker, preserves local records, and reloads offline. Another regression verifies that a future update keeps an active match intact until the player chooses to update from the menu. The complete browser suite now has 30 scenarios.
 
 Follow-up local validation: 154 unit tests, both typechecks and production build passed. The two upgrade scenarios passed three consecutive repetitions, then the complete 30-scenario suite passed twice (30/30 each, zero retries).
+
+The first follow-up CI run passed both cache regressions but exposed the shared 60-second timeout in the ten-weapon renderer loop (29/30 scenarios passed). That loop is now ten independent bounded cases, retaining every weapon assertion and zero retries. The expanded suite has 39 scenarios; this isolates one projectile resolution per timeout rather than increasing timeouts or relying on runner speed.
+
+After isolating weapon scenarios, both complete local runs passed 39/39 with zero retries; browser-test typecheck passed.
