@@ -39,3 +39,11 @@ Measurements use Node 20.20.0 on the development machine. Normal AI decisions av
 ## Limits
 
 No physical-phone tests or human fun/win-rate study were performed. Survival checkpoints resume the between-battle shop; in-progress encounters are not serialized. The deterministic simulation compares the current engine with six-weapon inventory against the current expanded inventory, rather than executing an old compiled release. A public deployment is verified separately using the Actions result, `release.json` commit/version and the served hashed assets; a successful HTTP status alone is insufficient.
+
+## Follow-up: upgrades from cached versions
+
+The initial release verified clean installations and offline reloads, but missed upgrades from an existing 2.2 cache. Its inherited prompt-mode registration had no update prompt handler. A newer worker could remain waiting behind another open tab, so a reload continued to show the cached release.
+
+The follow-up activates updated offline assets without requiring old tabs to close. The current client intercepts reload requests and presents an update notice; it never reloads a running match automatically. Online/focus events check for newer assets. A local-origin browser regression reproduces a cached 2.2 navigation with another old tab open, upgrades through the real production worker, preserves local records, and reloads offline. Another regression verifies that a future update keeps an active match intact until the player chooses to update from the menu. The complete browser suite now has 30 scenarios.
+
+Follow-up local validation: 154 unit tests, both typechecks and production build passed. The two upgrade scenarios passed three consecutive repetitions, then the complete 30-scenario suite passed twice (30/30 each, zero retries).

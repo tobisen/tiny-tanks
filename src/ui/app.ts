@@ -70,6 +70,7 @@ export class AppUI {
   private dialog = document.createElement("dialog");
   private promptInstall?: Event & { prompt: () => Promise<void> };
   private ready = false;
+  private updateReady = false;
   private settingsReturn: "menu" | "pause" = "menu";
   private beforeHelpPaused = false;
   private record = emptyRecord();
@@ -135,6 +136,7 @@ export class AppUI {
     document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <div class="shell">
         <header class="topbar"><a class="brand" href="#" aria-label="Tiny Tanks home">${tankLogo}<span>TINY TANKS</span></a><div class="topbar-center"><span class="live-dot"></span> ARSENAL & CHAOS</div><nav aria-label="Game actions"><button class="icon-button" id="sound" aria-label="Mute sound">${icon("sound")}</button><button class="icon-button" id="records" aria-label="Arcade record">${icon("flag")}</button><button class="icon-button" id="help" aria-label="How to play">${icon("help")}</button><button class="icon-button" id="pause" aria-label="Pause game" disabled>${icon("pause")}</button></nav></header>
+        <div id="update-notice" class="guidance update-notice" role="status" hidden><span id="update-message"></span><button id="apply-update">Load update</button></div>
         <main>
           <div class="match-heading"><div><span class="eyebrow" id="match-mode">THE PROVING GROUNDS</span><h1 id="match-title">A good day to make a crater.</h1></div><div class="match-meta"><span class="theme-dot"></span><span id="theme-label">GREEN HILLS</span><span class="meta-divider">/</span><span id="turn-label">READY WHEN YOU ARE</span></div></div>
           <section class="battlefield" aria-label="Artillery battlefield">
@@ -223,6 +225,9 @@ export class AppUI {
     });
   }
   private bind(): void {
+    this.click("apply-update", () => {
+      if (this.updateReady && (this.screen === "menu" || this.scene?.match.phase === "over")) window.location.reload();
+    });
     this.click("quick-play", () => {
       this.settings = quickPlaySettings(Math.random, this.settings);
       this.start("ai");
@@ -799,6 +804,10 @@ export class AppUI {
         )}</div><p class="survival-record">SURVIVAL · Best streak <strong>${this.survivalRecord.bestStreak}</strong> · Best score <strong>${this.survivalRecord.bestScore}</strong> · Runs ${this.survivalRecord.runs}</p><div class="achievement-list">${ACHIEVEMENTS.map((a) => `<div class="achievement ${r.achievements.includes(a.id) ? "earned" : ""}"><span>${r.achievements.includes(a.id) ? "★" : "◇"}</span><div><strong>${a.name}</strong><p>${a.description}</p></div></div>`).join("")}</div>`,
     );
   }
+  offerUpdate(): void {
+    this.updateReady = true;
+    this.sync();
+  }
   sync(): void {
     const scene = this.scene;
     if (!scene?.match) return;
@@ -806,6 +815,12 @@ export class AppUI {
       tank = match.current,
       inGame = this.screen === "game";
     if (inGame) this.captureRecord(match);
+    const canUpdate = !inGame || match.phase === "over";
+    this.byId("update-notice").hidden = !this.updateReady;
+    this.byId<HTMLButtonElement>("apply-update").disabled = !canUpdate;
+    this.byId("update-message").textContent = canUpdate
+      ? "A new version is ready. Your saved records and settings will be kept."
+      : "A new version is ready. Finish your match or return to the menu to update.";
     this.byId("menu").hidden = inGame;
     if (!inGame) {
       let checkpoint = false;

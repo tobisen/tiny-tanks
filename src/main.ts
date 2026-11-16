@@ -21,13 +21,15 @@ new Phaser.Game({
   audio: { noAudio: true },
   render: { roundPixels: false },
 });
-// An update waits until the next page load, so an active match is never interrupted.
+// Activate new offline assets even when older tabs stay open. The UI controls
+// page reloads so an update never interrupts a match in this client.
 registerSW({
   immediate: true,
+  onNeedReload: () => ui.offerUpdate(),
   onRegisteredSW: (_url, registration) => {
-    window.addEventListener("online", () => {
-      void registration?.update();
-    });
+    const checkForUpdate = () => { void registration?.update().catch(() => {}); };
+    window.addEventListener("online", checkForUpdate);
+    window.addEventListener("focus", checkForUpdate);
   },
 });
 

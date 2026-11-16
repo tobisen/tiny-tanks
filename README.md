@@ -86,7 +86,7 @@ The [Arsenal balance report](docs/arsenal-balance.json) compares 24 paired Norma
 
 ## GitHub Pages
 
-The deployment flow remains the same as prior versions; the build is still generated for the repository base path and the bundled Vite PWA remains offline-compatible.
+The deployment flow remains the same as prior versions; the build is still generated for the repository base path and the bundled Vite PWA remains offline-compatible. Updated offline assets activate even while older tabs are open. A running match is not reloaded by the current client: a small update notice lets players load the update from the menu or after finishing. Saved statistics and settings remain intact.
 
 Browser checks emulate mobile touch and orientation; physical-phone performance has not been benchmarked.
 

@@ -19,7 +19,19 @@ for(const path of live.assets){
   assert.deepEqual(remote,built,`Live bytes differ: ${path}`);
   files.push({path,bytes:remote.length,sha256:createHash('sha256').update(remote).digest('hex')});
 }
+const swResponse=await fetch(new URL(`sw.js?verify=${expectedCommit}`,base),{signal:AbortSignal.timeout(15000)});
+assert(swResponse.ok); const worker=await swResponse.text();
+assert(worker.includes('self.skipWaiting()'),'The live worker must activate behind old open tabs');
+assert(worker.includes('.clientsClaim()'),'The live worker must control existing clients');
+const releaseRevision=createHash('md5').update(JSON.stringify(live)).digest('hex');
+assert(worker.includes(releaseRevision),'The live worker must precache this exact release identity');
+for(const asset of live.assets) assert(worker.includes(asset),`The live worker is missing ${asset}`);
+const helper=worker.match(/"\.\/(workbox-[a-z0-9]+)"/)?.[1];
+assert(helper,'Missing worker helper');
+const helperResponse=await fetch(new URL(`${helper}.js`,base),{signal:AbortSignal.timeout(15000)});
+assert(helperResponse.ok);
+assert.deepEqual(Buffer.from(await helperResponse.arrayBuffer()),await readFile(new URL(`../dist/${helper}.js`,import.meta.url)),'Live worker helper differs from the tested build');
 const html=await (await fetch(base,{signal:AbortSignal.timeout(15000)})).text();
 for(const asset of live.assets.filter(p=>p.endsWith('.css') || (p.startsWith('assets/index-') && p.endsWith('.js'))))
   assert(html.includes(asset),`Live HTML does not reference ${asset}`);
-console.log(JSON.stringify({url:base.href,version:live.version,commit:live.commit,verifiedAt:new Date().toISOString(),files},null,2));
+console.log(JSON.stringify({url:base.href,version:live.version,commit:live.commit,verifiedAt:new Date().toISOString(),files,serviceWorker:{sha256:createHash('sha256').update(worker).digest('hex'),skipWaiting:true,clientsClaim:true,releaseRevision}},null,2));

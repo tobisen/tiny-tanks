@@ -17,7 +17,7 @@ export default defineConfig({
       this.emitFile({ type: "asset", fileName: "release.json", source: JSON.stringify({ version, commit: process.env.GITHUB_SHA ?? null, assets: Object.keys(bundle).filter(name => name.startsWith("assets/")).sort() }) });
     } },
     VitePWA({
-      registerType: "prompt",
+      registerType: "autoUpdate",
       includeAssets: ["icon.svg", "icon-192.png", "icon-512.png"],
       manifest: {
         name: "Tiny Tanks",

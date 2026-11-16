@@ -2487,3 +2487,8 @@ body {
 @media (max-width: 720px) { .weapon { min-height: 48px; } .weapons { gap: 6px; } .menu-actions { gap: 7px; } .menu-actions .button { min-height: 44px; } }
 @media (min-width: 721px) and (max-height: 600px) { .battlefield:not(.home) .weapon { min-height: 44px; } .battlefield:not(.home) .weapons { grid-template-columns: repeat(5, minmax(44px, 1fr)); } }
 .weapon svg { color: var(--weapon-color, currentColor); }
+
+.update-notice { margin: 12px 0; }
+.update-notice[hidden] { display: none; }
+.update-notice button { min-width: 110px; }
+.update-notice button:disabled { opacity: .45; cursor: default; }
