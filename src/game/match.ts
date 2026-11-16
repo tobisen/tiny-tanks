@@ -11,8 +11,10 @@ import {
 } from "./config";
 import { Terrain } from "./terrain";
 import { placeCrates, type Crate } from "./crates";
-import { blastDamage, integrate, launch, sweep, type Body } from "./physics";
+import { blastDamage, bounce, integrate, launch, sweep, type Body } from "./physics";
 import {
+  ARSENAL,
+  WEAPONS,
   createAmmo,
   consumeAmmo,
   weaponById,
@@ -56,6 +58,10 @@ export interface Tank {
   fuelBonus: number;
   moveX: number;
   moveHeld: number;
+  shield: number;
+  shieldActions: number;
+  shieldCharges: number;
+  fuelReserves: number;
 }
 export interface Projectile extends Body {
   id: number;
@@ -67,6 +73,7 @@ export interface Projectile extends Body {
   previousX: number;
   previousY: number;
   shot?: number;
+  bounces?: number;
 }
 export interface ShotIntent {
   target: number;
@@ -92,6 +99,7 @@ export interface ShotOutcome {
   intent?: ShotIntent;
   impacts: { x: number; y: number; direct?: number; exploded: boolean }[];
   damage: number;
+  bounces?: number;
 }
 export type GameEvent =
   | { type: "shot"; x: number; y: number; weapon: WeaponId }
@@ -111,6 +119,7 @@ export type GameEvent =
       y: number;
       amount: number;
       fall?: boolean;
+      burn?: boolean;
     }
   | { type: "death"; id: number; x: number; y: number }
   | { type: "split"; x: number; y: number }
@@ -134,6 +143,9 @@ export type GameEvent =
   | { type: "direct-hit"; id: number; x: number; y: number; amount: number }
   | { type: "near-miss"; x: number; y: number }
   | { type: "duel" }
+  | { type: "shield"; id: number; amount: number; action: "activate" | "absorb" | "expire" }
+  | { type: "bounce"; x: number; y: number }
+  | { type: "air-warning"; x: number }
   | { type: "turn" }
   | { type: "win" };
 export function nextLiving(tanks: readonly Tank[], current: number): number {
@@ -149,7 +161,13 @@ export function winner(
   const alive = tanks.filter((t) => t.health > 0);
   return alive.length === 1 ? alive[0].id : undefined;
 }
+export interface BurningZone {
+  x: number; owner: number; shot: number; created: number; remaining: number;
+  applied: Record<number, number>;
+}
 export class Match {
+  objectiveX?: number;
+  onActionResolved?: () => void;
   terrain: Terrain;
   tanks: Tank[];
   crates: Crate[];
@@ -157,6 +175,9 @@ export class Match {
   events: GameEvent[] = [];
   supplies: SupplyDrop[] = [];
   notice = "";
+  fires: BurningZone[] = [];
+  airTarget?: number;
+  airWarning?: { x: number; remaining: number };
   tremor?: Tremor;
   private duelAnnounced = false;
   private closePasses = new Map<
@@ -173,6 +194,7 @@ export class Match {
   readonly shotHistory: ShotOutcome[] = [];
   private resolvingShot?: ShotOutcome;
   private hitShots = new Set<string>();
+  private attackLimits = new Map<number, number>();
   private attackBudget = new Map<string, number>();
   private rng: () => number;
   private serial = 0;
@@ -219,6 +241,7 @@ export class Match {
         fuelBonus: 0,
         moveX: 0,
         moveHeld: 0,
+        shield: 0, shieldActions: 0, shieldCharges: ARSENAL.shieldCharges, fuelReserves: 0,
       };
     });
     this.crates = settings.crates
@@ -270,11 +293,13 @@ export class Match {
     if (
       this.phase !== "aim" ||
       this.current.health <= 0 ||
+      (this.current.weapon === "airstrike" && this.airTarget === undefined) ||
       !consumeAmmo(this.current.ammo, this.current.weapon)
     )
       return false;
     const tank = this.current;
     this.attackBudget.clear();
+    this.attackLimits = new Map(this.tanks.map(t => [t.id, Math.max(12, t.health * WORLD.maxAttackDamageRatio)]));
     this.closePasses.clear();
     this.resolvingShot = {
       owner: tank.id,
@@ -296,7 +321,11 @@ export class Match {
     };
     tank.shots++;
     const w = weaponById(tank.weapon);
-    for (const spread of w.behavior === "spread"
+    if (w.behavior === "airstrike") {
+      this.airWarning = { x: clamp(this.airTarget!, 48, WORLD.width - 48), remaining: ARSENAL.airWarning };
+      this.events.push({ type: "air-warning", x: this.airWarning.x });
+      this.airTarget = undefined;
+    } else for (const spread of w.behavior === "spread"
       ? [-WORLD.spreadAngle, 0, WORLD.spreadAngle]
       : [0])
       this.projectiles.push(
@@ -325,6 +354,15 @@ export class Match {
       return;
     }
     if (this.phase !== "flight") return;
+    if (this.airWarning) {
+      this.airWarning.remaining -= dt;
+      if (this.airWarning.remaining > 0) return;
+      for (let i = 0; i < ARSENAL.airCount; i++) {
+        const x = this.airWarning.x + (i - 2) * ARSENAL.airSpacing;
+        this.projectiles.push(this.projectile(this.current, 0, 0, true, { x, y: 20 - Math.abs(i - 2) * 9, vx: 0, vy: 220 }));
+      }
+      this.airWarning = undefined;
+    }
     const survivors: Projectile[] = [];
     const children: Projectile[] = [];
     for (const p of this.projectiles) {
@@ -365,6 +403,13 @@ export class Match {
         continue;
       }
       if (hit?.terrain) {
+        if (w.behavior === "bounce" && bounce(p, hit.x, this.terrain, p.bounces ?? 0)) {
+          p.bounces = (p.bounces ?? 0) + 1;
+          if (this.resolvingShot) this.resolvingShot.bounces = (this.resolvingShot.bounces ?? 0) + 1;
+          this.events.push({ type: "bounce", x: p.x, y: p.y });
+          survivors.push(p);
+          continue;
+        }
         if (w.behavior === "penetrate" && !p.child) {
           if (p.penetration === 0)
             this.events.push({ type: "penetrate", x: hit.x, y: hit.y });
@@ -478,10 +523,7 @@ export class Match {
     }
     const key = `${this.resolvingShot.owner}:${tank.id}:${this.resolvingShot.turn}`;
     const previous = this.attackBudget.get(key) ?? 0;
-    const effectiveLimit = Math.max(
-      12,
-      tank.health * WORLD.maxAttackDamageRatio,
-    );
+    const effectiveLimit = this.attackLimits.get(tank.id) ?? 12;
     const remaining = Math.max(0, effectiveLimit - previous);
     const actual = Math.min(amount, remaining);
     this.attackBudget.set(key, previous + actual);
@@ -490,9 +532,16 @@ export class Match {
     return before - tank.health;
   }
 
-  private hurt(tank: Tank, amount: number, p: Projectile, fall = false): void {
+  private hurt(tank: Tank, amount: number, p: Pick<Projectile, "owner" | "shot">, fall = false, burn = false): void {
     if (tank.health <= 0 || amount <= 0) return;
+    if (!fall && tank.shield > 0) {
+      const absorbed = Math.min(tank.shield, amount);
+      tank.shield -= absorbed;
+      amount -= absorbed;
+      this.events.push({ type: "shield", id: tank.id, action: "absorb", amount: absorbed });
+    }
     const actual = Math.min(tank.health, amount);
+    if (actual <= 0) return;
     tank.health -= actual;
     const owner = p.owner,
       attacker = this.tanks[owner];
@@ -513,6 +562,7 @@ export class Match {
       y: tank.y - 24,
       amount: actual,
       fall,
+      burn,
     });
     if (tank.health <= 0) {
       if (owner !== tank.id) this.tanks[owner].kills++;
@@ -553,13 +603,7 @@ export class Match {
           blast.damage,
           tank.id === blast.direct,
         );
-        const limited = this.resolvingShot
-          ? Math.min(
-              raw,
-              Math.max(12, tank.health * WORLD.maxAttackDamageRatio),
-            )
-          : raw;
-        const actual = this.applyDamageToTank(tank, limited, p);
+        const actual = this.applyDamageToTank(tank, raw, p);
         if (tank.id === blast.direct && tank.id !== p.owner && actual > 0)
           this.events.push({
             type: "direct-hit",
@@ -573,8 +617,8 @@ export class Match {
       this.terrain.crater(
         blast.x,
         blast.y,
-        blast.radius,
-        blast.underground ? 1.35 : 1,
+        !blast.crate ? (w.terrainRadius ?? blast.radius) : blast.radius,
+        w.behavior === "seismic" && !blast.crate ? 1.25 : blast.underground ? 1.35 : 1,
       );
       for (const crate of this.crates) {
         if (
@@ -602,6 +646,10 @@ export class Match {
           direct: undefined,
         });
       }
+    }
+    if (w.behavior === "burn") {
+      if (this.fires.length >= ARSENAL.maxFires) this.fires.shift();
+      this.fires.push({ x, owner: p.owner, shot: p.shot ?? 0, created: this.turn, remaining: ARSENAL.fireTurns, applied: {} });
     }
     this.longestChain = Math.max(this.longestChain, chained);
     this.tanks[p.owner].longestChain = Math.max(
@@ -631,7 +679,54 @@ export class Match {
       if (crate.active) crate.y = this.terrain.at(crate.x);
     tickSupplies(this, 0);
   }
+  selectAirTarget(x: number): boolean {
+    if (this.phase !== "aim" || this.current.weapon !== "airstrike" || !Number.isFinite(x)) return false;
+    this.airTarget = clamp(x, 48, WORLD.width - 48);
+    return true;
+  }
+  activateShield(): boolean {
+    const tank = this.current;
+    if (this.phase !== "aim" || tank.health <= 0 || tank.shieldCharges <= 0 || tank.shield > 0) return false;
+    tank.shieldCharges--;
+    tank.shield = Math.round(this.settings.health * ARSENAL.shieldFraction);
+    tank.shieldActions = 2;
+    this.events.push({ type: "shield", id: tank.id, amount: tank.shield, action: "activate" });
+    this.phase = "settle";
+    this.settleTime = 0;
+    this.airTarget = undefined;
+    return true;
+  }
+  refillFuel(): boolean {
+    const tank = this.current;
+    if (this.phase !== "aim" || !this.settings.movement || tank.fuelReserves <= 0 || tank.fuel >= WORLD.moveFuel) return false;
+    tank.fuelReserves--;
+    tank.fuel = WORLD.moveFuel;
+    return true;
+  }
   private advance(): void {
+    if (this.current.shieldActions > 0 && --this.current.shieldActions === 0) {
+      this.current.shield = 0;
+      this.events.push({ type: "shield", id: this.current.id, amount: 0, action: "expire" });
+    }
+    // One interval per completed action. Overlapping zones share a 5 HP interval budget.
+    const interval = new Map<number, number>();
+    for (const zone of this.fires) {
+      if (zone.created >= this.turn) continue;
+      for (const tank of this.tanks) {
+        if (tank.health <= 0 || Math.abs(tank.x - zone.x) > ARSENAL.fireRadius) continue;
+        const amount = Math.min(ARSENAL.fireDamage - (interval.get(tank.id) ?? 0),
+          ARSENAL.fireLifetimeBudget - (zone.applied[tank.id] ?? 0));
+        if (amount <= 0) continue;
+        interval.set(tank.id, (interval.get(tank.id) ?? 0) + amount);
+        zone.applied[tank.id] = (zone.applied[tank.id] ?? 0) + amount;
+        this.hurt(tank, amount, { owner: zone.owner, shot: zone.shot }, false, true);
+      }
+      zone.remaining--;
+    }
+    this.fires = this.fires.filter(z => z.remaining > 0);
+    this.airTarget = undefined;
+    this.onActionResolved?.();
+    if (this.phase === "over") return;
     const alive = this.tanks.filter((t) => t.health > 0).length;
     if (!this.duelAnnounced && this.tanks.length > 2 && alive === 2) {
       this.duelAnnounced = true;
@@ -646,6 +741,7 @@ export class Match {
     this.active = nextLiving(this.tanks, this.active);
     this.turn++;
     const current = this.current;
+    if (current.ammo[current.weapon] <= 0) current.weapon = WEAPONS.find(w => current.ammo[w.id] > 0)?.id ?? "standard";
     resetFuel(current);
     this.rollWind();
     this.phase = "aim";

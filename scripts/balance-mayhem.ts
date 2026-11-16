@@ -3,6 +3,8 @@ import { writeFileSync } from "node:fs";
 import { chooseShot, fireAIShot } from "../src/game/ai";
 import { chooseSupplyMove } from "../src/game/ai-movement";
 import { DEFAULT_SETTINGS, PROFILE_IDS, WORLD } from "../src/game/config";
+import { version } from "../package.json";
+import { ARSENAL } from "../src/game/weapons";
 import { Match } from "../src/game/match";
 
 function sample(enabled: boolean) {
@@ -59,7 +61,7 @@ function sample(enabled: boolean) {
             for (let step = 0; step < 90; step++) {
               const supply = g.supplies.find((d) => d.id === movement.supplyId);
               if (
-                supply?.state !== "landed" ||
+                (movement.supplyId === "hazard" ? Math.abs(g.current.x - movement.targetX) < 5 : supply?.state !== "landed") ||
                 !g.move(movement.direction, 1 / 60)
               )
                 break;
@@ -83,8 +85,8 @@ function sample(enabled: boolean) {
             );
             assert(
               health[i] - g.tanks[i].health <=
-                Math.max(12, health[i] * WORLD.maxAttackDamageRatio) + 0.001,
-              "Attack damage must respect the 2.2 per-target budget",
+                Math.max(12, health[i] * WORLD.maxAttackDamageRatio) + ARSENAL.fireDamage + 0.001,
+              "Attack plus bounded persistent interval must respect configured budgets",
             );
           }
         }
@@ -119,7 +121,7 @@ function sample(enabled: boolean) {
   };
 }
 const report = {
-  version: "2.3.0",
+  version,
   methodology:
     "Paired Normal-AI simulated matches, 4 profiles × 3 themes × 2 seeds; 3 tanks; 120-shot bound. Actual shared movement, supply, event, and projectile paths. Not a human-play or device-performance benchmark.",
   baseline: sample(false),

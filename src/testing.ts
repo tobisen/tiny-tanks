@@ -6,7 +6,7 @@ import type { GameEvent } from "./game/match";
 import { spawnSupply } from "./game/supplies";
 import { chooseSupplyMove } from "./game/ai-movement";
 import { scheduleEnvironment } from "./game/environment";
-export function installTestHarness(_ui: AppUI, scene: BattleScene): void {
+export function installTestHarness(_ui: AppUI, scene: BattleScene) {
   const events: GameEvent[] = [];
   const target = scene as unknown as { handleEvent(event: GameEvent): void };
   const original = target.handleEvent.bind(scene);
@@ -23,7 +23,8 @@ export function installTestHarness(_ui: AppUI, scene: BattleScene): void {
         | "tremor"
         | "events-off"
         | "survival-win"
-        | "survival-loss",
+        | "survival-loss"
+        | "arsenal",
     ) {
       const settings = {
         ...scene.match.settings,
@@ -94,11 +95,15 @@ export function installTestHarness(_ui: AppUI, scene: BattleScene): void {
         g.wind = 0;
         g.notice = "";
         g.events.length = 0;
+      } else if (kind === "arsenal") {
+        g.settings.supplies = false; g.settings.environmentalEvents = false;
+        g.tanks[0].x = 135; g.tanks[1].x = 700;
       } else {
         g.settings.supplies = false;
         if (kind === "survival-win") {
           g.current.health = 40;
           g.current.ammo.heavy = 0;
+          g.current.ammo.betty = 0;
           g.current.ammo.mega = 0;
           g.tanks[1].x = 300;
           g.tanks[1].health = 8;
@@ -113,9 +118,16 @@ export function installTestHarness(_ui: AppUI, scene: BattleScene): void {
         seed: scene.match.seed,
         tanks: structuredClone(scene.match.tanks),
         supplies: structuredClone(scene.match.supplies),
+        fires: structuredClone(scene.match.fires),
+        projectiles: structuredClone(scene.match.projectiles),
+        terrainVersion: scene.match.terrain.version,
+        terrain: [135, 640, 700].map(x => scene.match.terrain.at(x)),
         events: structuredClone(events),
       };
     },
   };
   Object.assign(window, { __TINY_TANKS_TEST__: api });
+  return api;
 }
+
+export type TestAPI = ReturnType<typeof installTestHarness>;

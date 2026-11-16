@@ -1,0 +1,54 @@
+{
+  "version": "2.4.0",
+  "methodology": "24 paired three-tank Normal-AI matches per ruleset: four profiles, three themes, two seeds; shared physics, legal movement, supplies and events. Legacy arsenal disables the four new rounds and shields. All incoming damage including shield absorption plus a separate maximum-five persistent interval is audited per action. Desktop CPU timings; no physical-device or human-play claims.",
+  "legacy": {
+    "games": 24,
+    "meanTurns": 50.125,
+    "unresolved": 0,
+    "oneShots": 0,
+    "shields": 0,
+    "bounces": 0,
+    "fireDamageEvents": 0,
+    "maxResolutionSeconds": 10.791666666666666,
+    "decisions": 1203,
+    "meanDecisionMs": 7.418371157938483,
+    "p95DecisionMs": 10.389791999999943,
+    "weapons": {
+      "standard": 711,
+      "heavy": 198,
+      "triple": 128,
+      "cluster": 78,
+      "bunker": 63,
+      "mega": 25,
+      "napalm": 0,
+      "betty": 0,
+      "airstrike": 0,
+      "seismic": 0
+    }
+  },
+  "arsenal": {
+    "games": 24,
+    "meanTurns": 41.291666666666664,
+    "unresolved": 0,
+    "oneShots": 0,
+    "shields": 6,
+    "bounces": 115,
+    "fireDamageEvents": 29,
+    "maxResolutionSeconds": 16.391666666666666,
+    "decisions": 991,
+    "meanDecisionMs": 7.429697911200877,
+    "p95DecisionMs": 11.267499999999927,
+    "weapons": {
+      "standard": 331,
+      "heavy": 134,
+      "triple": 147,
+      "cluster": 82,
+      "bunker": 61,
+      "mega": 16,
+      "napalm": 84,
+      "betty": 58,
+      "airstrike": 43,
+      "seismic": 29
+    }
+  }
+}

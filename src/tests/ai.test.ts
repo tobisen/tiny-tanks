@@ -324,7 +324,7 @@ describe("bounded Normal AI integration scenarios", () => {
       crates: false,
       theme: "green",
     },
-    145,
+    143,
   );
 
   function humanShot(game: Match, angle: number, power = 20) {

@@ -278,7 +278,7 @@ describe("arcade balance, Quick Play and AI", () => {
   });
   it("weapon strengths, speeds, ammo and radii stay within useful balance bounds", () => {
     for (const w of WEAPONS) {
-      expect(w.damage).toBeGreaterThan(15);
+      expect(w.damage).toBeGreaterThan(w.id === "seismic" ? 10 : 15);
       expect(w.radius).toBeGreaterThan(25);
       expect(w.radius).toBeLessThanOrEqual(110);
       expect(w.speed).toBeGreaterThanOrEqual(0.8);

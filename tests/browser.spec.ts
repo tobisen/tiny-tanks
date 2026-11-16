@@ -1,4 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
 
 async function ready(page: Page, seed = 20261115) {
   await page.clock.setFixedTime(new Date(seed));
@@ -98,7 +100,7 @@ async function committedAIShot(page: Page, turn: number) {
     "triple",
     "cluster",
     "bunker",
-    "mega",
+    "mega", "napalm", "betty", "airstrike", "seismic",
   ]).toContain(committed!.weapon);
   return committed!;
 }
@@ -117,7 +119,7 @@ async function battlefieldFits(page: Page) {
   }).toPass({ timeout: 5000 });
 }
 
-test("production menu, keyboard, six loadouts, pause, settings, local turns and resize", async ({
+test("production menu, keyboard, ten loadouts, pause, settings, local turns and resize", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -128,7 +130,7 @@ test("production menu, keyboard, six loadouts, pause, settings, local turns and 
     path: "test-results/menu-desktop.png",
     fullPage: true,
   });
-  await expect(page.locator("#menu")).toContainText("V.2.3.0");
+  await expect(page.locator("#menu")).toContainText(`V.${version}`);
   expect(await page.evaluate(() => "__TINY_TANKS_TEST__" in window)).toBe(
     false,
   );
@@ -139,11 +141,11 @@ test("production menu, keyboard, six loadouts, pause, settings, local turns and 
   await page.locator("#play-local").click();
   await expect(page.locator("#players .player-card")).toHaveCount(4);
   await expect(page.locator("#fire")).toBeEnabled();
-  for (let i = 1; i <= 6; i++) {
+  for (let i = 1; i <= 10; i++) {
     await page.locator("body").click({ position: { x: 2, y: 2 } });
-    await page.keyboard.press(String(i));
+    await page.keyboard.press(String(i % 10));
     await expect(page.locator(".weapon.selected .weapon-name")).toHaveText(
-      ["Shell", "Heavy", "Triple", "Cluster", "Bunker", "Mega"][i - 1],
+      ["Shell", "Heavy", "Triple", "Cluster", "Bunker", "Mega", "Napalm", "Betty", "Air strike", "Seismic"][i - 1],
     );
   }
   await page.keyboard.press("1");
@@ -329,6 +331,11 @@ test("production manifest, installability metadata and an offline reload work un
   context,
 }) => {
   await ready(page);
+  const releaseResponse = await page.request.get("release.json");
+  expect(releaseResponse.ok()).toBe(true);
+  const release = await releaseResponse.json();
+  expect(release.version).toBe(version);
+  expect(release.assets.some((asset: string) => asset.startsWith("assets/index-") && asset.endsWith(".js"))).toBe(true);
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
@@ -388,13 +395,14 @@ test("every weapon fires and resolves in the actual renderer", async ({
     "Triple Shot",
     "Cluster Bomb",
     "Bunker Buster",
-    "Mega Bomb",
+    "Mega Bomb", "Napalm", "Bouncing Betty", "Air Strike", "Seismic Charge",
   ]) {
     if (name !== "Standard Shell") {
       await page.locator("#pause").click();
       await page.locator("#restart").click();
     }
     await page.getByRole("button", { name, exact: true }).click();
+    if (name === "Air Strike") await setRange(page, "air-target", 640);
     await setRange(page, "angle", 60);
     await setRange(page, "power", 35);
     await page.locator("#fire").click();
@@ -484,7 +492,7 @@ test("Normal AI naturally misses then damages an opponent in two exchanges", asy
 }) => {
   // Accuracy distributions belong to the real-physics unit calibration guard.
   // This integration scenario checks exactly two unmodified AI launches.
-  await ready(page, 145);
+  await ready(page, 143);
   await settings(page, "2", "normal", "75", "green", false);
   await page.locator("#play-ai").click();
   for (const [aiTurn, humanHealth] of [

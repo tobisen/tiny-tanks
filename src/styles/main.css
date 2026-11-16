@@ -2455,3 +2455,35 @@ body {
     min-width: 45px;
   }
 }
+
+/* Arsenal: two rows keep every weapon within a large, stable touch target. */
+.weapons { grid-template-columns: repeat(5, minmax(44px, 1fr)); }
+.weapon { min-height: 49px; touch-action: manipulation; }
+.weapon-name { font-size: 9px; }
+.weapon svg { width: 20px; height: 20px; }
+.equipment { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.equipment-button { min-height: 44px; border: 1px solid #657972; border-radius: 5px; background: #243b40; color: #e9edd4; padding: 10px 12px; cursor: pointer; font: 12px var(--mono); text-align: left; }
+.equipment-button:hover:not(:disabled) { background: #354e48; border-color: #d5f577; }
+.equipment-button:disabled { opacity: .42; cursor: default; }
+.equipment-button strong, .equipment-button small, .equipment-button span { display: block; }
+.equipment-button small { margin-top: 5px; color: #bdccbc; font-size: 11px; line-height: 1.5; }
+#shield { border-color: #86e5ff; color: #b1edff; }
+#air-controls { padding: 10px 0; color: #ffde73; font: 11px var(--mono); }
+#air-controls input { width: 100%; min-height: 44px; accent-color: #ffde73; }
+#air-controls p { margin: 3px 0; line-height: 1.5; }
+.challenge-objective, .guidance { padding: 12px; background: #253c3d; color: #e8edcd; border: 1px solid #64745a; font: 12px/1.6 var(--mono); margin-top: 10px; border-radius: 5px; }
+.guidance { display: flex; align-items: center; gap: 12px; }
+.guidance button { min-width: 64px; min-height: 44px; background: #d5f577; color: #20352b; border: 0; border-radius: 4px; }
+.guidance[hidden], .challenge-objective[hidden], #air-controls[hidden] { display: none; }
+.shop-grid, .challenge-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 14px 0; }
+.challenge-grid { grid-template-columns: 1fr; }
+.challenge-grid .equipment-button span { margin-top: 5px; font: 13px/1.5 var(--sans); }
+.survival-shop { margin: 18px 0; padding: 15px; border: 1px solid #667a5b; border-radius: 6px; }
+.survival-shop h3 { font: 15px var(--mono); color: #d5f577; }
+.survival-shop h3 small { display: block; margin-top: 6px; color: #bdccbc; }
+.survival-shop label { display: grid; gap: 6px; font: 12px var(--mono); }
+.survival-shop select { width: 100%; min-height: 44px; }
+#shop-feedback { color: #d5f577; }
+@media (max-width: 720px) { .weapon { min-height: 48px; } .weapons { gap: 6px; } .menu-actions { gap: 7px; } .menu-actions .button { min-height: 44px; } }
+@media (min-width: 721px) and (max-height: 600px) { .battlefield:not(.home) .weapon { min-height: 44px; } .battlefield:not(.home) .weapons { grid-template-columns: repeat(5, minmax(44px, 1fr)); } }
+.weapon svg { color: var(--weapon-color, currentColor); }

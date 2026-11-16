@@ -3,6 +3,7 @@ import { AI_SKILLS, normalNoise, uncertainty, type AISkill } from "./ai-config";
 import { sampleTerrain, shotMemory } from "./ai-memory";
 import {
   blastDamage,
+  bounce,
   integrate,
   launch,
   sweep,
@@ -10,7 +11,7 @@ import {
   type Target,
 } from "./physics";
 import type { Match, ShotIntent, Tank } from "./match";
-import { WEAPONS, type Weapon, type WeaponId } from "./weapons";
+import { ARSENAL, WEAPONS, type Weapon, type WeaponId } from "./weapons";
 export interface Shot {
   angle: number;
   power: number;
@@ -18,6 +19,7 @@ export interface Shot {
   intent: ShotIntent;
   correctionApplied: boolean;
   evaluations: number;
+  shield?: boolean;
 }
 interface PerceivedTarget extends Target {
   real: Tank;
@@ -94,6 +96,10 @@ function selectWeapon(
       if (w.id === "triple") utility += crowded * 0.6;
       if (w.id === "cluster") utility += crowded * 1.3 + nearbyCrates * 0.25;
       if (w.id === "bunker" && target.y > match.current.y + 25) utility += 1.1;
+      if (w.id === "napalm") utility += (match.settings.movement ? 0.7 : 0.3) + (target.real.fuel < 40 ? 0.5 : 0);
+      if (w.id === "betty") utility += Math.abs(target.y - match.current.y) < 60 ? 0.6 : 0;
+      if (w.id === "airstrike") utility += match.terrain.at((target.x + match.current.x) / 2) < Math.min(target.y, match.current.y) - 35 ? 1.5 : 0.4;
+      if (w.id === "seismic") utility += target.y < match.current.y - 30 ? 1.4 : 0;
       if (w.id === "mega") utility += crowded * 2 + nearbyCrates * 0.3;
       if (
         w.radius > 60 &&
@@ -125,6 +131,7 @@ function impact(
   const self = match.current,
     body = launch(self.x, self.y - 12, angle, power, weapon.speed),
     from: Body = { ...body };
+  let bounces = 0;
   for (let time = 0; time < WORLD.maxFlight; time += 1 / 30) {
     Object.assign(from, body);
     integrate(body, 1 / 30, wind, match.gravity);
@@ -138,6 +145,10 @@ function impact(
     );
     if (hit) {
       if (body.x < 0 || body.x > WORLD.width) return;
+      if (hit.terrain && weapon.behavior === "bounce" && bounce(body, hit.x, match.terrain, bounces)) {
+        bounces++;
+        continue;
+      }
       if (hit.terrain && weapon.behavior === "penetrate") {
         const speed = Math.hypot(body.vx, body.vy);
         return {
@@ -276,6 +287,14 @@ export function chooseShot(match: Match): Shot {
       bestPower = power;
     }
   };
+  if (weapon.id === "airstrike") {
+    // Same confirmed x target as a human; perceived position and execution error remain imperfect.
+    const offset = normalNoise(execution) * skill.targetPositionError;
+    return { angle: self.angle, power: self.power, weapon: weapon.id, evaluations: ARSENAL.airCount,
+      correctionApplied: false, shield: shouldShield(match),
+      intent: { target: target.id, estimatedWind, intendedAngle: self.angle, intendedPower: self.power,
+        targetX: clamp(target.x + offset, 48, WORLD.width - 48), targetY: target.y, terrainSamples: [] } };
+  }
   if (guide) evaluate(guide.angle, guide.power);
   const coarse = Math.floor(skill.trajectorySearchBudget * 0.7),
     angles = Math.max(5, Math.floor(Math.sqrt(coarse * 0.8))),
@@ -319,6 +338,7 @@ export function chooseShot(match: Match): Shot {
     power: clamp(bestPower + powerError, 0, 100),
     weapon: weapon.id,
     evaluations,
+    shield: shouldShield(match),
     correctionApplied,
     intent: {
       target: target.id,
@@ -333,8 +353,19 @@ export function chooseShot(match: Match): Shot {
 }
 export function fireAIShot(match: Match, shot: Shot): boolean {
   if (match.current.health <= 0 || match.phase !== "aim") return false;
+  if (shot.shield) return match.activateShield();
   match.current.angle = shot.angle;
   match.current.power = shot.power;
   match.current.weapon = shot.weapon;
+  if (shot.weapon === "airstrike") match.selectAirTarget(shot.intent.targetX);
   return match.fire(shot.intent);
+}
+
+export function shouldShield(match: Match): boolean {
+  const tank = match.current;
+  if (tank.shield > 0 || tank.shieldCharges <= 0) return false;
+  const hazard = match.fires.some(z => Math.abs(z.x - tank.x) <= ARSENAL.fireRadius);
+  const threat = match.tanks.some(t => t.id !== tank.id && t.health > 0 && Math.abs(t.x - tank.x) < 470);
+  const threshold = { easy: 0.14, normal: 0.23, hard: 0.3 }[match.settings.difficulty];
+  return tank.health < match.settings.health * threshold && (threat || hazard);
 }

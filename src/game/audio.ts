@@ -74,6 +74,10 @@ export class AudioManager {
         cluster: [400, 0.2, "sine", 2],
         bunker: [120, 0.22, "sawtooth", 0.9],
         mega: [47, 0.4, "triangle", 0.45],
+        napalm: [165, 0.24, "sawtooth", 2.4],
+        betty: [660, 0.16, "sine", 1.6],
+        airstrike: [940, 0.18, "triangle", 2.2],
+        seismic: [58, 0.32, "sawtooth", 0.5],
       };
     const [frequency, duration, wave, pitch] = profile[weapon];
     this.tone(frequency, duration, wave, weapon === "mega" ? 0.3 : 0.18);
@@ -102,7 +106,7 @@ export class AudioManager {
       triple: 1.8,
       cluster: 1.6,
       bunker: 0.55,
-      mega: 0.4,
+      mega: 0.4, napalm: 2.2, betty: 1.9, airstrike: 1.7, seismic: 0.42,
     };
     this.boom(
       Math.min(0.85, radius / 110),

@@ -4,7 +4,11 @@ export type WeaponId =
   | "triple"
   | "cluster"
   | "bunker"
-  | "mega";
+  | "mega"
+  | "napalm"
+  | "betty"
+  | "airstrike"
+  | "seismic";
 export interface Weapon {
   id: WeaponId;
   name: string;
@@ -14,8 +18,9 @@ export interface Weapon {
   damage: number;
   radius: number;
   color: number;
-  behavior: "shell" | "spread" | "cluster" | "penetrate";
+  behavior: "shell" | "spread" | "cluster" | "penetrate" | "burn" | "bounce" | "airstrike" | "seismic";
   sound: "shell" | "heavy";
+  terrainRadius?: number;
   speed: number;
   recoil: number;
   shake: number;
@@ -111,6 +116,10 @@ export const WEAPONS: readonly Weapon[] = [
     recoil: 12,
     shake: 0.0045,
   },
+  { id: "napalm", name: "Napalm", short: "Napalm", description: "Small blast. Fire burns for 3 completed turns: move to escape.", ammo: 2, damage: 22, radius: 27, color: 0xff753f, behavior: "burn", sound: "shell", speed: 1, recoil: 5, shake: 0.001 },
+  { id: "betty", name: "Bouncing Betty", short: "Betty", description: "Banks off slopes up to 3 times. Loses speed on every bounce.", ammo: 3, damage: 49, radius: 47, color: 0x70efcf, behavior: "bounce", sound: "shell", speed: 1, recoil: 5, shake: 0.002 },
+  { id: "airstrike", name: "Air Strike", short: "Air strike", description: "Select a horizontal target, then confirm FIRE. Five small shells from above.", ammo: 2, damage: 19, radius: 29, color: 0xffde73, behavior: "airstrike", sound: "shell", speed: 1, recoil: 2, shake: 0.001 },
+  { id: "seismic", name: "Seismic Charge", short: "Seismic", description: "Low blast damage. A deep, wide crater changes the battlefield.", ammo: 2, damage: 14, radius: 42, terrainRadius: 88, color: 0xb99bff, behavior: "seismic", sound: "heavy", speed: 0.98, recoil: 8, shake: 0.0035 },
 ];
 export type Ammo = Record<WeaponId, number>;
 export function createAmmo(): Ammo {
@@ -123,3 +132,11 @@ export function consumeAmmo(ammo: Ammo, id: WeaponId): boolean {
 }
 export const weaponById = (id: WeaponId): Weapon =>
   WEAPONS.find((w) => w.id === id)!;
+
+/** Deterministic bounds, shared by gameplay, previews and AI. */
+export const ARSENAL = {
+  bounceCount: 3, bounceRetention: 0.62, bounceMinSpeed: 60,
+  fireRadius: 53, fireTurns: 3, fireDamage: 5, fireLifetimeBudget: 15, maxFires: 3,
+  airCount: 5, airSpacing: 24, airWarning: 0.55,
+  shieldFraction: 0.3, shieldCharges: 1, maxShieldCharges: 3,
+} as const;

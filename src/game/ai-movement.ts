@@ -1,7 +1,7 @@
 import { random, SUPPLIES, WORLD } from "./config";
 import type { Match } from "./match";
 import { reachable } from "./movement";
-import { WEAPONS } from "./weapons";
+import { ARSENAL, WEAPONS } from "./weapons";
 export interface SupplyMove {
   supplyId: string;
   direction: -1 | 1;
@@ -11,13 +11,21 @@ export interface SupplyMove {
 export function chooseSupplyMove(game: Match): SupplyMove | undefined {
   if (
     game.phase !== "aim" ||
-    !game.settings.supplies ||
     !game.settings.movement ||
     game.current.health <= 0
   )
     return;
   const tank = game.current,
     difficulty = game.settings.difficulty;
+  const burning = game.fires.find(z => Math.abs(z.x - tank.x) <= ARSENAL.fireRadius);
+  if (burning) {
+    for (const direction of (tank.x < burning.x ? [-1, 1] : [1, -1]) as (-1 | 1)[]) {
+      const targetX = burning.x + direction * (ARSENAL.fireRadius + 23);
+      if (reachable(tank, targetX, game.terrain, game.tanks, game.settings, 4))
+        return { supplyId: "hazard", direction, targetX, evaluations: 182 };
+    }
+  }
+  if (!game.settings.supplies) return;
   const awareness = { easy: 0.25, normal: 0.65, hard: 0.9 }[difficulty];
   const rng = random(game.seed ^ (game.turn * 7919) ^ (tank.id * 313));
   if (rng() > awareness) return;

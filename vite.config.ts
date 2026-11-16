@@ -13,6 +13,9 @@ export default defineConfig({
   base,
   define: { __APP_VERSION__: JSON.stringify(version) },
   plugins: [
+    { name: "release-identity", generateBundle(_, bundle) {
+      this.emitFile({ type: "asset", fileName: "release.json", source: JSON.stringify({ version, commit: process.env.GITHUB_SHA ?? null, assets: Object.keys(bundle).filter(name => name.startsWith("assets/")).sort() }) });
+    } },
     VitePWA({
       registerType: "prompt",
       includeAssets: ["icon.svg", "icon-192.png", "icon-512.png"],
@@ -42,7 +45,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        globPatterns: ["**/*.{js,css,html,svg,png,woff2,json}"],
         maximumFileSizeToCacheInBytes: 4_000_000,
         navigateFallback: `${base}index.html`,
       },

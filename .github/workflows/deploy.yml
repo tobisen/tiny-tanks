@@ -23,11 +23,16 @@ jobs:
       - run: npm test
       - name: Verify seeded Mayhem match balance
         run: npm run balance:mayhem
+      - name: Verify Arsenal pacing and aggregate damage budgets
+        run: npm run balance:arsenal
       - run: npm run typecheck
+      - run: npm run typecheck:browser
       - run: npm run build
       - name: Install browser for release verification
         run: npx playwright install --with-deps chromium
       - name: Verify gameplay and offline production build
+        run: npm run test:browser
+      - name: Repeat complete browser suite before release
         run: npm run test:browser
       - name: Preserve browser screenshots and failure traces
         if: always()

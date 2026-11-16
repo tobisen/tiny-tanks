@@ -1,5 +1,4 @@
 import { test, expect, type Page } from "@playwright/test";
-import type { GameEvent } from "../src/game/match";
 // Only the development server includes controlled fixture preparation. The
 // existing production suite still verifies release assets, PWA and full flows.
 const repo = process.env.GITHUB_REPOSITORY?.split("/")[1];
@@ -11,30 +10,8 @@ test.skip(
   !!process.env.TEST_URL,
   "Controlled fixtures are absent from the public production build",
 );
-declare global {
-  interface Window {
-    __TINY_TANKS_TEST__: {
-      prepare(
-        kind:
-          | "supply"
-          | "ai-supply"
-          | "gust"
-          | "tremor"
-          | "events-off"
-          | "survival-win"
-          | "survival-loss",
-      ): void;
-      snapshot(): {
-        turn: number;
-        phase: string;
-        seed: number;
-        tanks: { x: number; health: number; fuel: number; fuelBonus: number }[];
-        supplies: { state: string }[];
-        events: GameEvent[];
-      };
-    };
-  }
-}
+import type { TestAPI } from "../src/testing";
+declare global { interface Window { __TINY_TANKS_TEST__: TestAPI; } }
 async function start(page: Page, button = "play-local") {
   await page.clock.setFixedTime(new Date(145));
   await page.goto("./");

@@ -174,7 +174,7 @@ describe("turn rules", () => {
     expect(random(12)()).toBe(random(12)());
   });
 });
-describe("six weapon behaviors and ammunition", () => {
+describe("ten weapon behaviors and ammunition", () => {
   it("preserves unlimited shells and rejects exhausted ammunition", () => {
     const ammo = createAmmo();
     for (let i = 0; i < 10; i++)
@@ -189,6 +189,7 @@ describe("six weapon behaviors and ammunition", () => {
     g.current.weapon = weapon.id;
     g.current.angle = 75;
     g.current.power = 25;
+    if (weapon.id === "airstrike") g.selectAirTarget(640);
     expect(g.fire()).toBe(true);
     resolve(g);
     expect(g.terrain.version).toBeGreaterThan(0);

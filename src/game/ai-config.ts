@@ -39,7 +39,7 @@ export const AI_SKILLS: Readonly<Record<Difficulty, AISkill>> = {
       triple: 0.04,
       cluster: 0.03,
       bunker: 0.02,
-      mega: 0.01,
+      mega: 0.01, napalm: 0.025, betty: 0.02, airstrike: 0.025, seismic: 0.005,
     },
   },
   normal: {
@@ -63,7 +63,7 @@ export const AI_SKILLS: Readonly<Record<Difficulty, AISkill>> = {
       triple: 0.15,
       cluster: 0.1,
       bunker: 0.09,
-      mega: 0.04,
+      mega: 0.04, napalm: 0.10, betty: 0.08, airstrike: 0.10, seismic: 0.06,
     },
   },
   hard: {
@@ -87,7 +87,7 @@ export const AI_SKILLS: Readonly<Record<Difficulty, AISkill>> = {
       triple: 0.15,
       cluster: 0.1,
       bunker: 0.13,
-      mega: 0.06,
+      mega: 0.06, napalm: 0.12, betty: 0.12, airstrike: 0.12, seismic: 0.10,
     },
   },
 };

@@ -66,6 +66,7 @@ export function execute(game: Match, shot: CalibrationShot): ShotOutcome {
   game.current.angle = shot.angle;
   game.current.power = shot.power;
   game.current.weapon = shot.weapon;
+  if (shot.weapon === "airstrike") game.selectAirTarget(shot.intent?.targetX ?? game.tanks.find(t => t.id !== game.active && t.health > 0)!.x);
   if (!game.fire(shot.intent))
     throw new Error("Planner produced an illegal shot");
   return resolveShot(game);

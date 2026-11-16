@@ -1,3 +1,4 @@
+import { ARSENAL } from "./weapons";
 import { CRATES, WORLD } from "./config";
 import type { Terrain } from "./terrain";
 export interface Body {
@@ -107,4 +108,18 @@ export function attackDamageBudget(
   const cap = Math.max(18, targetHealth * WORLD.maxAttackDamageRatio);
   const directBonus = directHit ? Math.min(18, targetHealth * 0.08) : 0;
   return Math.min(baseDamage, cap + directBonus);
+}
+
+/** Reflect around the sampled heightmap normal; place outside ground before resuming. */
+export function bounce(body: Body, x: number, terrain: Terrain, count: number): boolean {
+  if (count >= ARSENAL.bounceCount) return false;
+  const slope = (terrain.at(x + 4) - terrain.at(x - 4)) / 8;
+  const length = Math.hypot(slope, 1), nx = slope / length, ny = -1 / length;
+  const dot = body.vx * nx + body.vy * ny;
+  if (dot >= 0) return false;
+  body.vx = (body.vx - 2 * dot * nx) * ARSENAL.bounceRetention;
+  body.vy = (body.vy - 2 * dot * ny) * ARSENAL.bounceRetention;
+  body.x = x + nx * 4;
+  body.y = Math.min(terrain.at(body.x), terrain.at(x)) - 4;
+  return Math.hypot(body.vx, body.vy) >= ARSENAL.bounceMinSpeed;
 }

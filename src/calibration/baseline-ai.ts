@@ -122,6 +122,7 @@ function value(match: Match, hit: Impact, w: Weapon): number {
     triple: 6,
     cluster: 8,
     bunker: 7,
+    napalm: 0, betty: 0, airstrike: 0, seismic: 0,
     mega: 22,
   };
   return score - closest * 0.07 - ammoCost[w.id];
@@ -135,7 +136,7 @@ export function chooseShot(match: Match): Shot {
   const weapons =
     difficulty === "easy"
       ? [weaponById("standard")]
-      : WEAPONS.filter((w) => tank.ammo[w.id] > 0);
+      : WEAPONS.slice(0, 6).filter((w) => tank.ammo[w.id] > 0);
   let best: Shot = {
       angle: tank.x < WORLD.width / 2 ? 55 : 125,
       power: 65,

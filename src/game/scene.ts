@@ -16,7 +16,7 @@ import {
 } from "./config";
 import { Match, type GameEvent, type Tank } from "./match";
 import { integrate, launch } from "./physics";
-import { weaponById } from "./weapons";
+import { ARSENAL, weaponById } from "./weapons";
 import { CombatEffects } from "./effects";
 
 interface TankView {
@@ -99,10 +99,17 @@ export class BattleScene extends Phaser.Scene {
     });
     this.game.events.on(Phaser.Core.Events.BLUR, () => this.clearInput());
     this.startMatch({ ...DEFAULT_SETTINGS }, true);
+    this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (this.canAim && this.match.current.weapon === "airstrike") {
+        this.match.selectAirTarget(pointer.worldX);
+        this.soundFX.select(8);
+        this.onChange();
+      }
+    });
     this.onReady();
   }
-  startMatch(settings: Settings, demo = false, seed?: number): void {
-    this.match = new Match({ ...settings }, seed);
+  startMatch(settings: Settings, demo = false, seed?: number, supplied?: Match): void {
+    this.match = supplied ?? new Match({ ...settings }, seed);
     this.demo = demo;
     this.paused = false;
     this.aiClock = 0;
@@ -417,6 +424,11 @@ export class BattleScene extends Phaser.Scene {
     view.name.setPosition(tank.x, view.y + 25).setVisible(tank.health > 0);
     view.health.clear();
     if (tank.health <= 0) return;
+    if (tank.shield > 0) {
+      g.fillStyle(0x86e5ff, 0.12).fillCircle(tank.x, view.y - 13, 30);
+      g.lineStyle(2.5, 0x86e5ff, 0.85).strokeCircle(tank.x, view.y - 13, 30);
+      g.lineStyle(3, 0xc5f5ff).lineBetween(tank.x - 19, view.y - 47, tank.x - 19 + 38 * tank.shield / (this.match.settings.health * ARSENAL.shieldFraction), view.y - 47);
+    }
     const color =
       view.hit > 0
         ? 0xffffff
@@ -560,6 +572,17 @@ export class BattleScene extends Phaser.Scene {
   private drawSupplies(): void {
     const g = this.supplyGraphics;
     g.clear();
+    for (const zone of this.match.fires) {
+      for (let i = 0; i < zone.remaining; i++)
+        g.fillStyle(0xffd076).fillRect(zone.x - 9 + i * 7, this.match.terrain.at(zone.x) - 20, 5, 3);
+      g.lineStyle(5, 0xff713e, 0.65);
+      for (let x = Math.max(0, zone.x - ARSENAL.fireRadius); x <= Math.min(WORLD.width, zone.x + ARSENAL.fireRadius); x += 10) {
+        const y = this.match.terrain.at(x);
+        const h = this.match.settings.reducedMotion ? 9 : 8 + Math.sin(this.ambient * 7 + x) * 4;
+        g.fillStyle(0xffa34f, 0.8).fillTriangle(x - 3, y - 2, x + 3, y - 2, x + 1, y - h);
+        g.lineBetween(x - 5, y, x + 5, y);
+      }
+    }
     for (const drop of this.match.supplies) {
       if (!availableSupply(drop)) continue;
       const { x, y } = drop;
@@ -619,7 +642,23 @@ export class BattleScene extends Phaser.Scene {
     }
   }
   private handleEvent(event: GameEvent): void {
-    if (event.type === "shot") {
+    if (event.type === "shield") {
+      const tank = this.match.tanks[event.id];
+      if (event.action === "activate") {
+        this.announce(`${tank.name.toUpperCase()} · SHIELD ${event.amount}`);
+        this.effects.flash(tank.x, tank.y - 13, 39, 0x86e5ff);
+        this.soundFX.select(7);
+      } else if (event.action === "absorb") {
+        this.announce(`${tank.name.toUpperCase()} · ${+event.amount.toFixed(2)} ABSORBED`);
+        this.effects.flash(tank.x, tank.y - 13, 30, 0x86e5ff, 0.2);
+        this.soundFX.aim();
+      }
+    } else if (event.type === "bounce") {
+      this.effects.flash(event.x, event.y, 16, 0x70efcf, 0.2);
+      this.soundFX.select(5);
+    } else if (event.type === "air-warning") {
+      this.soundFX.select(8);
+    } else if (event.type === "shot") {
       const w = weaponById(event.weapon),
         tank = this.match.current,
         r = (tank.angle * Math.PI) / 180;
@@ -692,7 +731,7 @@ export class BattleScene extends Phaser.Scene {
         .text(
           event.x,
           event.y - 10,
-          `${event.fall ? "↓ " : "−"}${+event.amount.toFixed(2)}`,
+          `${event.fall ? "↓ " : event.burn ? "♨ −" : "−"}${+event.amount.toFixed(2)}`,
           {
             fontFamily: "monospace",
             fontStyle: "bold",
@@ -872,11 +911,9 @@ export class BattleScene extends Phaser.Scene {
           const drop = this.match.supplies.find(
             (s) => s.id === this.aiMove!.supplyId,
           );
-          if (
-            !drop ||
-            drop.state !== "landed" ||
-            !this.match.move(this.aiMove.direction, delta)
-          )
+          if (this.aiMove.supplyId === "hazard"
+            ? Math.abs(this.match.current.x - this.aiMove.targetX) < 5 || !this.match.move(this.aiMove.direction, delta)
+            : !drop || drop.state !== "landed" || !this.match.move(this.aiMove.direction, delta))
             this.aiMove = undefined;
           this.onChange();
         }
@@ -972,7 +1009,21 @@ export class BattleScene extends Phaser.Scene {
   private drawAim(): void {
     const g = this.aimGraphics;
     g.clear();
-    if (!this.canAim || !this.match.settings.preview) return;
+    const targetX = this.match.airWarning?.x ?? (this.canAim && this.match.current.weapon === "airstrike" ? this.match.airTarget : undefined);
+    if (targetX !== undefined) {
+      const y = this.match.terrain.at(targetX);
+      g.lineStyle(2, 0xffde73, 0.9).lineBetween(targetX, 30, targetX, y);
+      g.strokeEllipse(targetX, y - 5, 115, 18);
+      g.lineBetween(targetX - 12, 45, targetX + 12, 45);
+      for (let i = -2; i <= 2; i++) g.fillStyle(0xffde73).fillTriangle(targetX + i * 24, 66, targetX + i * 24 - 4, 58, targetX + i * 24 + 4, 58);
+    }
+    const marker = this.match.objectiveX;
+    if (marker !== undefined) {
+      const y = this.match.terrain.at(marker);
+      g.lineStyle(2, 0xd5f577).strokeCircle(marker, y - 18, 22);
+      g.lineBetween(marker - 30, y - 18, marker + 30, y - 18);
+    }
+    if (!this.canAim || !this.match.settings.preview || this.match.current.weapon === "airstrike") return;
     const tank = this.match.current,
       body = launch(
         tank.x,
@@ -1016,7 +1067,9 @@ export class BattleScene extends Phaser.Scene {
         ).lineBetween(trail[i - 1].x, trail[i - 1].y, trail[i].x, trail[i].y);
       }
       g.fillStyle(0xffedb5, 0.14).fillCircle(x, y, 10);
-      g.fillStyle(0xfff7db).fillCircle(x, y, p.weapon === "mega" ? 5 : 3);
+      g.fillStyle(weaponById(p.weapon).color).fillCircle(x, y, p.weapon === "mega" ? 5 : 4);
+      if (p.weapon === "seismic") g.lineStyle(1, 0xffffff).strokeRect(x - 4, y - 4, 8, 8);
+      if (p.weapon === "betty") g.lineStyle(1, 0xffffff).strokeCircle(x, y, 5);
       if (y < 5) {
         g.fillStyle(0xfff4d2).fillTriangle(
           clamp(x, 10, 1270),
